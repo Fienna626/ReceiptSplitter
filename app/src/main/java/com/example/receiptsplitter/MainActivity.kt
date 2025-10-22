@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -42,6 +43,11 @@ import java.util.Locale
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Slider
 
 
 class MainActivity : ComponentActivity() {
@@ -258,6 +264,65 @@ class MainActivity : ComponentActivity() {
         }
         return items
     }
+    // --- THE CALCULATION LOGIC ---
+    fun calculateTotals(
+        people: List<Person>,
+        items: List<ReceiptItem>,
+        taxStr: String,
+        tipStr: String
+    ): List<PersonTotal> {
+
+        val totalTax = taxStr.toDoubleOrNull() ?: 0.0
+        val totalTip = tipStr.toDoubleOrNull() ?: 0.0
+
+        // 1. Calculate each person's subtotal
+        val personSubtotals = mutableMapOf<Person, Double>()
+        people.forEach { personSubtotals[it] = 0.0 } // Initialize all to 0
+
+        items.forEach { item ->
+            val numPeopleForItem = item.assignedPeople.size
+            if (numPeopleForItem > 0) {
+                val pricePerPerson = item.price / numPeopleForItem
+                item.assignedPeople.forEach { person ->
+                    // Add this item's share to the person's subtotal
+                    personSubtotals[person] = (personSubtotals[person] ?: 0.0) + pricePerPerson
+                }
+            }
+        }
+
+        // 2. Calculate the total subtotal that has been accounted for
+        val accountedForSubtotal = personSubtotals.values.sum()
+        if (accountedForSubtotal == 0.0) {
+            // Avoid division by zero; return empty list
+            return emptyList()
+        }
+
+        // 3. Calculate and return the final list
+        val finalTotals = mutableListOf<PersonTotal>()
+        personSubtotals.forEach { (person, subtotal) ->
+            // Find what percentage of the subtotal this person is responsible for
+            val percentageOfBill = subtotal / accountedForSubtotal
+
+            // Calculate their share of the tax and tip
+            val taxShare = totalTax * percentageOfBill
+            val tipShare = totalTip * percentageOfBill
+
+            // Calculate their final total
+            val totalOwed = subtotal + taxShare + tipShare
+
+            finalTotals.add(
+                PersonTotal(
+                    person = person,
+                    subtotal = subtotal,
+                    taxShare = taxShare,
+                    tipShare = tipShare,
+                    totalOwed = totalOwed
+                )
+            )
+        }
+
+        return finalTotals
+    }
 }
 
 
@@ -295,8 +360,42 @@ fun BillSplitterScreen(
     // --- State for Tax and Tip ---
     var taxInput by remember { mutableStateOf(TextFieldValue("")) }
     var tipInput by remember { mutableStateOf(TextFieldValue("")) }
+
+    // --- NEW: Change Tip to a percentage Float ---
+    // Start with a default tip of 18%
+    var tipPercent by remember { mutableStateOf(15f) }
+
+    // --- Get the activity to call the math function ---
+    val activity = (LocalActivity.current as? MainActivity)
+
+    // --- Calculate totals whenever data changes ---
+    // This 'remember' block will auto-recalculate when any of its "keys" change
+    val calculatedTotals = remember(items, people.value, taxInput.text, tipInput.text) {
+        activity?.calculateTotals(
+            people.value,
+            items,
+            taxInput.text,
+            tipInput.text
+        ) ?: emptyList() // If activity is null, return an empty list
+    }
+    // --- Calculate the total subtotal (for the tip) ---
+    val totalSubtotal = items.sumOf { it.price }
+
+    // --- Calculate the tip dollar amount ---
+    val calculatedTipAmount = totalSubtotal * (tipPercent / 100.0)
+
+    // --- UPDATED: Update the remember block ---
+    val calculatedTotals = remember(items, people.value, taxInput.text, tipPercent) { // <-- Use tipPercent
+        activity?.calculateTotals(
+            people.value,
+            items,
+            taxInput.text,
+            calculatedTipAmount.toString() // <-- Pass the calculated dollar amount
+        ) ?: emptyList()
+    }
+
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // --- 1. THE TOP BUTTON ---
@@ -320,6 +419,21 @@ fun BillSplitterScreen(
                     if (it.id == person.id) it.copy(name = newName) else it
                 }
                 people.value = updatedList
+            },
+            onDeletePerson = { personToDelete ->
+                // 1. Remove the person from the main people list
+                people.value = people.value.filter { it.id != personToDelete.id }
+
+                // 2. Remove the person from any items they were assigned to
+                items.forEach { item ->
+                    if (item.assignedPeople.contains(personToDelete)) {
+                        val updatedItem = item.copy(
+                            assignedPeople = item.assignedPeople.filter { it.id != personToDelete.id }.toMutableList()
+                        )
+                        // Use the onUpdateItem function we already have!
+                        onUpdateItem(updatedItem)
+                    }
+                }
             }
         )
 
@@ -336,6 +450,11 @@ fun BillSplitterScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.weight(1f)
             )
+            Text(
+                text = "${tipPercent.toInt()}%", // Show the current percent
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
             OutlinedTextField(
                 value = tipInput,
                 onValueChange = { tipInput = it },
@@ -344,15 +463,25 @@ fun BillSplitterScreen(
                 modifier = Modifier.weight(1f)
             )
         }
+        Slider(
+            value = tipPercent,
+            onValueChange = { tipPercent = it },
+            valueRange = 0f..30f, // From 0% to 30%
+            steps = 29, // This makes it snap to whole numbers (0, 1, 2...)
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
         // --- 3. THE ITEM LIST ---
+        // --- 3. THE ITEM LIST ---
         Text("Items", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
-        LazyColumn(modifier = Modifier
+        // --- FIX: Use a non-scrolling Column ---
+        Column(modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)) {
-            items(items, key = { it.id }) { item ->
+            // --- FIX: Just loop through the items ---
+            items.forEach { item ->
                 ItemRow(
                     item = item,
                     onClick = { setEditingItem(item) }, // Open the dialog when clicked
@@ -382,6 +511,13 @@ fun BillSplitterScreen(
                 }
             )
         }
+        // --- NEW! 5. THE TOTALS DISPLAY ---
+        // Show the totals card if there are any totals to show
+        if (calculatedTotals.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            TotalsDisplay(totals = calculatedTotals)
+            Spacer(modifier = Modifier.height(16.dp)) // Add space at the bottom
+        }
     }
 }
 
@@ -390,7 +526,8 @@ fun BillSplitterScreen(
 fun PeopleList(
     people: List<Person>,
     onAddPerson: () -> Unit,
-    onEditPersonName: (Person, String) -> Unit
+    onEditPersonName: (Person, String) -> Unit,
+    onDeletePerson: (Person) -> Unit
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -408,7 +545,12 @@ fun PeopleList(
                 },
                 label = { Text("Name") },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                modifier = Modifier.width(150.dp)
+                trailingIcon = {
+                    IconButton(onClick = { onDeletePerson(person) }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Remove Person")
+                    }
+                },
+                modifier = Modifier.width(170.dp)
             )
         }
 
@@ -519,13 +661,19 @@ fun EditItemDialog(
 
                 // --- Checklist of People ---
                 Text("Assign to:", style = MaterialTheme.typography.titleMedium)
-                LazyColumn {
-                    items(allPeople) { person ->
+                // --- FIX: Use a regular Column with a constrained height ---
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp) // <-- Give it a max height (e.g., 200.dp)
+                        .verticalScroll(rememberScrollState()) // Make *this* column scrollable
+                ) {
+                    allPeople.forEach { person -> // <-- FIX: Use a simple loop
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    // Add or remove the person from the selected set
+                                    // ... (your existing click logic)
                                     val newSet = selectedPeople.toMutableSet()
                                     if (selectedPeople.contains(person)) {
                                         newSet.remove(person)
@@ -539,6 +687,7 @@ fun EditItemDialog(
                             Checkbox(
                                 checked = selectedPeople.contains(person),
                                 onCheckedChange = { isChecked ->
+                                    // ... (your existing check logic)
                                     val newSet = selectedPeople.toMutableSet()
                                     if (isChecked) {
                                         newSet.add(person)
@@ -605,13 +754,23 @@ fun TotalsDisplay(totals: List<PersonTotal>) {
             // A row for each person
             totals.forEach { personTotal ->
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth().clickable { onPersonClick(personTotal) },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = personTotal.person.name,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    Column(Modifier.padding(vertical = 4.dp)) { // <-- Add Column for detail
+                        Text(
+                            text = personTotal.person.name,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "Sub: $${String.format(Locale.US, "%.2f", personTotal.subtotal)} " +
+                                    "Tax: $${String.format(Locale.US, "%.2f", personTotal.taxShare)} " +
+                                    "Tip: $${String.format(Locale.US, "%.2f", personTotal.tipShare)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
                         text = "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
                         style = MaterialTheme.typography.bodyLarge,
@@ -639,63 +798,4 @@ fun TotalsDisplay(totals: List<PersonTotal>) {
             }
         }
     }
-}
-// --- THE CALCULATION LOGIC ---
-private fun calculateTotals(
-    people: List<Person>,
-    items: List<ReceiptItem>,
-    taxStr: String,
-    tipStr: String
-): List<PersonTotal> {
-
-    val totalTax = taxStr.toDoubleOrNull() ?: 0.0
-    val totalTip = tipStr.toDoubleOrNull() ?: 0.0
-
-    // 1. Calculate each person's subtotal
-    val personSubtotals = mutableMapOf<Person, Double>()
-    people.forEach { personSubtotals[it] = 0.0 } // Initialize all to 0
-
-    items.forEach { item ->
-        val numPeopleForItem = item.assignedPeople.size
-        if (numPeopleForItem > 0) {
-            val pricePerPerson = item.price / numPeopleForItem
-            item.assignedPeople.forEach { person ->
-                // Add this item's share to the person's subtotal
-                personSubtotals[person] = (personSubtotals[person] ?: 0.0) + pricePerPerson
-            }
-        }
-    }
-
-    // 2. Calculate the total subtotal that has been accounted for
-    val accountedForSubtotal = personSubtotals.values.sum()
-    if (accountedForSubtotal == 0.0) {
-        // Avoid division by zero; return empty list
-        return emptyList()
-    }
-
-    // 3. Calculate and return the final list
-    val finalTotals = mutableListOf<PersonTotal>()
-    personSubtotals.forEach { (person, subtotal) ->
-        // Find what percentage of the subtotal this person is responsible for
-        val percentageOfBill = subtotal / accountedForSubtotal
-
-        // Calculate their share of the tax and tip
-        val taxShare = totalTax * percentageOfBill
-        val tipShare = totalTip * percentageOfBill
-
-        // Calculate their final total
-        val totalOwed = subtotal + taxShare + tipShare
-
-        finalTotals.add(
-            PersonTotal(
-                person = person,
-                subtotal = subtotal,
-                taxShare = taxShare,
-                tipShare = tipShare,
-                totalOwed = totalOwed
-            )
-        )
-    }
-
-    return finalTotals
 }
