@@ -1,4 +1,4 @@
-package com.example.receiptsplitter // Make sure this matches your package name
+package com.example.receiptsplitter
 
 import android.Manifest
 import android.content.Context
@@ -7,146 +7,217 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
-import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme // Make sure this matches your theme name
+import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.File
-import java.util.Objects
-import androidx.compose.foundation.background
+import java.util.Locale
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
+
 
 class MainActivity : ComponentActivity() {
+
+    // --- STATE ---
+    // This is the "source of truth" for our list of items.
+    // It's now stored in the Activity, not in the composable.
+    private var receiptItems = mutableStateOf(listOf<ReceiptItem>())
+
+    // This will hold the URI for the camera to save its photo to
+    private var tempImageUri: Uri? = null
+
+    // --- LAUNCHERS ---
+    // We register all the launchers here, in onCreate
+
+    // Launcher for picking an image from the GALLERY
+    private val galleryLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            processImage(uri) // Process the selected image
+        }
+    }
+
+    // Launcher for taking a picture with the CAMERA
+    private val cameraLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            tempImageUri?.let { processImage(it) } // Process the image saved at the temp URI
+        }
+    }
+
+    // Launcher for requesting CAMERA PERMISSION
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Permission was granted, launch the camera!
+            launchCamera()
+        } else {
+            // Permission was denied
+            Toast.makeText(this, "Camera permission is required to use the camera.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // This function creates a temporary file in your app's cache to store the camera photo
-        fun getTempUri(context: Context): Uri {
-            val file = File.createTempFile("temp_image", ".jpg", context.cacheDir)
-            return FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider", // This must match your AndroidManifest
-                file
-            )
-        }
+        // Initialize the temp URI once
+        tempImageUri = getTempUri(this)
 
         setContent {
             ReceiptSplitterTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    // This is our main app screen
-                    ReceiptScannerScreen(
-                        getTempUri = { getTempUri(applicationContext) }
+
+                    // --- DIALOG STATE ---
+                    // This state lives here so the Activity can control the dialogs
+                    var showOptionsDialog by remember { mutableStateOf(false) }
+                    var showPermissionDialog by remember { mutableStateOf(false) }
+
+                    // --- THE MAIN UI ---
+                    BillSplitterScreen(
+                        // Pass the item list down to the UI
+                        items = receiptItems.value,
+
+                        // When the button is clicked, just show the dialog
+                        onScanReceiptClick = { showOptionsDialog = true },
+
+                        // Pass a function to update the item
+                        onUpdateItem = { updatedItem ->
+                            // Find the item in our list and replace it
+                            val currentList = receiptItems.value.toMutableList()
+                            val index = currentList.indexOfFirst { it.id == updatedItem.id }
+                            if (index != -1) {
+                                currentList[index] = updatedItem
+                                receiptItems.value = currentList
+                            }
+                        },
+                        onDeleteItem = { itemToDelete ->
+                            val currentList = receiptItems.value.toMutableList()
+                            currentList.remove(itemToDelete)
+                            receiptItems.value = currentList
+                        }
                     )
-                }
-            }
-        }
-    }
-    // Inside MainActivity class, but outside onCreate
-    fun parseReceiptText(rawText: String): List<ReceiptItem> {
-        // This is the Regex. It looks for:
-        // (.+)      - Group 1: One or more characters (the item name)
-        // [ ]+      - One or more spaces
-        // (\d+\.\d{2}) - Group 2: One or more digits, a literal dot, and exactly two digits (the price)
-        val regex = "(.+)[ ]+(\\d+\\.\\d{2})".toRegex()
 
-        val items = mutableListOf<ReceiptItem>()
 
-        // Go through the raw text line by line
-        rawText.lines().forEach { line ->
-            val match = regex.find(line)
-            if (match != null) {
-                // A match was found!
-                val (name, priceStr) = match.destructured
-                val price = priceStr.toDoubleOrNull() ?: 0.0 // Convert price string to a Double
+                    // --- DIALOGS ---
+                    // The dialogs are part of the UI, controlled by the state
 
-                // Trim the name to remove extra spaces
-                val cleanName = name.trim()
+                    // Dialog 1: "Choose an option"
+                    if (showOptionsDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showOptionsDialog = false },
+                            title = { Text("Scan a new receipt") },
+                            text = { Text("How do you want to add your receipt?") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showOptionsDialog = false
+                                        showPermissionDialog = true // Show permission dialog
+                                    }
+                                ) { Text("Open Camera") }
+                            },
+                            dismissButton = {
+                                TextButton(
+                                    onClick = {
+                                        showOptionsDialog = false
+                                        // Launch the gallery
+                                        galleryLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                ) { Text("From Gallery") }
+                            }
+                        )
+                    }
 
-                // Don't add items with no name or price
-                if (cleanName.isNotEmpty() && price > 0.0) {
-                    items.add(ReceiptItem(name = cleanName, price = price))
-                }
-            }
-        }
-        return items
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ReceiptScannerScreen(getTempUri: () -> Uri) {
-    val context = LocalContext.current
-
-    // --- STATE VARIABLES ---
-    var imageUri by remember { mutableStateOf<Uri?>(null) }
-
-    // <-- NEW! Store a list of items, not just raw text
-    var receiptItems by remember { mutableStateOf(listOf<ReceiptItem>()) }
-
-    // This variable controls whether the "Choose Camera/Gallery" dialog is open
-    var showOptionsDialog by remember { mutableStateOf(false) }
-
-    // This variable controls whether the "Camera Permission" dialog is open
-    var showPermissionDialog by remember { mutableStateOf(false) }
-
-    // --- ML KIT: THE RECEIPT READER ---
-    val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-    // <-- NEW! We get the parser function from the Activity
-    // We need to find the Activity to call its 'parseReceiptText' function
-    val activity = (LocalActivity.current as? MainActivity)
-
-    fun processImage(uri: Uri) {
-        try {
-            val inputImage = InputImage.fromFilePath(context, uri)
-
-            textRecognizer.process(inputImage)
-                .addOnSuccessListener { visionText ->
-                    // 3. Success! Get the raw text
-                    val rawText = visionText.text
-                    Log.d("TEXT_RECOGNITION", "Success: \n$rawText")
-
-                    // <-- NEW! Call the parser
-                    if (activity != null) {
-                        receiptItems = activity.parseReceiptText(rawText)
-                    } else {
-                        Log.e("PARSER", "Could not get MainActivity instance")
+                    // Dialog 2: "Camera Permission"
+                    if (showPermissionDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPermissionDialog = false },
+                            title = { Text("Camera Permission Needed") },
+                            text = { Text("We need camera access to scan your receipt directly.") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showPermissionDialog = false
+                                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                ) { Text("Continue") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") }
+                            }
+                        )
                     }
                 }
+            }
+        }
+    }
+
+    // --- HELPER FUNCTIONS ---
+
+    private fun getTempUri(context: Context): Uri {
+        val file = File.createTempFile("temp_image", ".jpg", context.cacheDir)
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.provider", // This must match your AndroidManifest
+            file
+        )
+    }
+
+    private fun launchCamera() {
+        // 1. Create a new, non-null URI and store it
+        val newImageUri = getTempUri(this)
+
+        // 2. Save this new URI to your class variable
+        tempImageUri = newImageUri
+
+        // 3. Launch the camera with the new, non-null URI
+        cameraLauncher.launch(newImageUri)
+    }
+
+    private fun processImage(uri: Uri) {
+        val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        try {
+            val inputImage = InputImage.fromFilePath(this, uri)
+            textRecognizer.process(inputImage)
+                .addOnSuccessListener { visionText ->
+                    val rawText = visionText.text
+                    Log.d("TEXT_RECOGNITION", "Success: \n$rawText")
+                    // Call the parser and update our state
+                    receiptItems.value = parseReceiptText(rawText)
+                }
                 .addOnFailureListener { e ->
-                    // 4. Failed
                     Log.e("TEXT_RECOGNITION", "Failed:", e)
                 }
         } catch (e: Exception) {
@@ -154,203 +225,477 @@ fun ReceiptScannerScreen(getTempUri: () -> Uri) {
         }
     }
 
-    // --- LAUNCHERS (These are all the same as before) ---
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri ->
-            if (uri != null) {
-                imageUri = uri
-                processImage(uri)
-            }
-        }
-    )
+    fun parseReceiptText(rawText: String): List<ReceiptItem> {
+        // We are using the "greedy" regex to get the LAST price on the line
+        val regex = "(.+)[ ]+(\\d+\\.\\d{2})".toRegex()
+        val ignoreKeywords = listOf("SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "YOUR ORDER")
 
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-        onResult = { success ->
-            if (success) {
-                imageUri?.let { processImage(it) }
-            }
-        }
-    )
+        val items = mutableListOf<ReceiptItem>()
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
-            if (isGranted) {
-                val newImageUri = getTempUri()
-                imageUri = newImageUri
-                cameraLauncher.launch(newImageUri)
-            } else {
-                Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+        rawText.lines().forEach { line ->
+            val shouldIgnore = ignoreKeywords.any { keyword ->
+                line.uppercase().contains(keyword)
             }
-        }
-    )
 
-    // --- DIALOGS (These are all the same as before) ---
-    if (showOptionsDialog) {
-        AlertDialog(
-            onDismissRequest = { showOptionsDialog = false },
-            title = { Text("Split a new receipt") },
-            text = { Text("How do you want to add your receipt?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showOptionsDialog = false
-                        showPermissionDialog = true
+            if (!shouldIgnore) {
+                val match = regex.find(line)
+                if (match != null) {
+                    val (name, priceStr) = match.destructured
+                    val price = priceStr.toDoubleOrNull() ?: 0.0
+
+                    // Clean the name by splitting at the "@"
+                    val cleanName = if (name.contains("@")) {
+                        name.split("@")[0].trim()
+                    } else {
+                        name.trim()
                     }
-                ) {
-                    Text("Open Camera")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showOptionsDialog = false
-                        galleryLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+
+                    if (cleanName.isNotEmpty() && price > 0.0) {
+                        items.add(ReceiptItem(name = cleanName, price = price))
                     }
-                ) {
-                    Text("From Gallery")
                 }
             }
-        )
+        }
+        return items
     }
+}
 
-    if (showPermissionDialog) {
-        AlertDialog(
-            onDismissRequest = { showPermissionDialog = false },
-            title = { Text("Camera Permission Needed") },
-            text = { Text("We need camera access to scan your receipt directly.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showPermissionDialog = false
-                        permissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                ) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPermissionDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
-    // --- UI (What the user sees) ---
-    // <-- NEW! This UI is completely different
+// --- DATA CLASSES (at the bottom of your file) ---
+
+data class Person(
+    val id: java.util.UUID = java.util.UUID.randomUUID(),
+    var name: String
+)
+
+data class ReceiptItem(
+    val id: java.util.UUID = java.util.UUID.randomUUID(),
+    var name: String,
+    var price: Double,
+    // A list of people who are splitting this item
+    val assignedPeople: MutableList<Person> = mutableListOf()
+)
+
+
+// --- COMPOSABLES (at the bottom of your file) ---
+
+// This is our NEW main screen.
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun BillSplitterScreen(
+    items: List<ReceiptItem>,
+    onScanReceiptClick: () -> Unit,
+    onUpdateItem: (ReceiptItem) -> Unit, // <-- to save edits
+    onDeleteItem: (ReceiptItem) -> Unit // <-- to delete item
+
+) {
+    // --- State for People ---
+    val people = remember { mutableStateOf(listOf(Person(name = "Person 1"))) }
+    val (editingItem, setEditingItem) = remember { mutableStateOf<ReceiptItem?>(null) }
+    // --- State for Tax and Tip ---
+    var taxInput by remember { mutableStateOf(TextFieldValue("")) }
+    var tipInput by remember { mutableStateOf(TextFieldValue("")) }
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Button at the top
+        // --- 1. THE TOP BUTTON ---
         Button(
-            onClick = { showOptionsDialog = true },
-            modifier = Modifier.padding(16.dp) // Add padding
+            onClick = onScanReceiptClick,
+            modifier = Modifier.padding(16.dp)
         ) {
-            Text("Split a New Receipt")
+            Text("Scan a New Receipt")
         }
 
-        // --- The new itemized list ---
+        // --- 2. THE PEOPLE LIST ---
+        Text("People", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+        PeopleList(
+            people = people.value,
+            onAddPerson = {
+                val newName = "Person ${people.value.size + 1}"
+                people.value = people.value + Person(name = newName)
+            },
+            onEditPersonName = { person, newName ->
+                val updatedList = people.value.map {
+                    if (it.id == person.id) it.copy(name = newName) else it
+                }
+                people.value = updatedList
+            }
+        )
 
-        // LazyColumn is Compose's efficient way to show a long, scrollable list
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier.fillMaxSize()
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        // --- Tax and Tip Input Fields ---
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            OutlinedTextField(
+                value = taxInput,
+                onValueChange = { taxInput = it },
+                label = { Text("Total Tax") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = tipInput,
+                onValueChange = { tipInput = it },
+                label = { Text("Total Tip") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.weight(1f)
+            )
+        }
 
-            // This is a "sticky" header that will stay at the top
-            stickyHeader {
-                Text(
-                    text = "Items Found: ${receiptItems.size}",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+        // --- 3. THE ITEM LIST ---
+        Text("Items", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+        LazyColumn(modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)) {
+            items(items, key = { it.id }) { item ->
+                ItemRow(
+                    item = item,
+                    onClick = { setEditingItem(item) }, // Open the dialog when clicked
+                    onDeleteClick = { onDeleteItem(item) }
                 )
             }
+        }
 
-            // This is the loop that creates one row for each item
-            items(receiptItems, key = { it.id }) { item ->
-                ListItem(item = item)
-            }
+        // --- 4. THE EDIT DIALOG ---
+        editingItem?.let { item ->
+            EditItemDialog(
+                item = item,
+                allPeople = people.value,
+                onDismiss = { setEditingItem(null) },
+                // --- FIX: Receive all three parameters ---
+                onSave = { updatedName, updatedPrice, assignedPeople ->
+                    // --- Save the changes ---
+                    val updatedItem = item.copy(
+                        name = updatedName,
+                        price = updatedPrice,
+                        // --- This line will now work! ---
+                        assignedPeople = assignedPeople.toMutableList()
+                    )
+                    // Call the function to update the list
+                    onUpdateItem(updatedItem)
+                    setEditingItem(null) // Close the dialog
+                }
+            )
         }
     }
 }
-data class ReceiptItem(
-    val id: java.util.UUID = java.util.UUID.randomUUID(), // Unique ID for each item
-    var name: String,
-    var price: Double
-)
 
+// --- UI for the row of people ---
 @Composable
-fun ListItem(item: ReceiptItem) {
-    // You will need to import:
-    // androidx.compose.foundation.layout.Row
-    // androidx.compose.foundation.layout.Spacer
-    // androidx.compose.foundation.layout.fillMaxWidth
-    // androidx.compose.foundation.layout.width
-    // androidx.compose.foundation.clickable
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                // TODO: This is where we will add the logic to assign the item
-            }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+fun PeopleList(
+    people: List<Person>,
+    onAddPerson: () -> Unit,
+    onEditPersonName: (Person, String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Item Name
-        Text(
-            text = item.name,
-            modifier = Modifier.weight(1f), // This makes the name take up all extra space
-            style = MaterialTheme.typography.bodyLarge
-        )
+        items(people) { person ->
+            var personName by remember { mutableStateOf(TextFieldValue(person.name)) }
 
-        // Spacer to push price to the right
-        Spacer(modifier = Modifier.width(16.dp))
+            OutlinedTextField(
+                value = personName,
+                onValueChange = {
+                    personName = it
+                    onEditPersonName(person, it.text)
+                },
+                label = { Text("Name") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                modifier = Modifier.width(150.dp)
+            )
+        }
 
-        // Item Price
-        Text(
-            // Format the price to always show two decimal places (e.g., "$12.50")
-            text = "$${String.format(java.util.Locale.US, "%.2f", item.price)}",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-// Inside MainActivity class, but outside onCreate
-private fun parseReceiptText(rawText: String): List<ReceiptItem> {
-    // This is the Regex. It looks for:
-    // (.+)      - Group 1: One or more characters (the item name)
-    // [ ]+      - One or more spaces
-    // (\d+\.\d{2}) - Group 2: One or more digits, a literal dot, and exactly two digits (the price)
-    val regex = "(.+)[ ]+(\\d+\\.\\d{2})".toRegex()
-
-    val items = mutableListOf<ReceiptItem>()
-
-    // Go through the raw text line by line
-    rawText.lines().forEach { line ->
-        val match = regex.find(line)
-        if (match != null) {
-            // A match was found!
-            val (name, priceStr) = match.destructured
-            val price = priceStr.toDoubleOrNull() ?: 0.0 // Convert price string to a Double
-
-            // Trim the name to remove extra spaces
-            val cleanName = name.trim()
-
-            // Don't add items with no name or price
-            if (cleanName.isNotEmpty() && price > 0.0) {
-                items.add(ReceiptItem(name = cleanName, price = price))
+        item {
+            IconButton(onClick = onAddPerson) {
+                Icon(Icons.Default.Add, contentDescription = "Add Person")
             }
         }
     }
-    return items
+}
+
+
+// --- UI for a single item row ---
+@Composable
+fun ItemRow(
+    item: ReceiptItem,
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit // <-- Renamed from onLongClick
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        // 1. The Delete Button
+        IconButton(onClick = onDeleteClick) {
+            Icon(
+                imageVector = Icons.Default.Clear, // This is the 'X' icon
+                contentDescription = "Delete Item",
+                tint = MaterialTheme.colorScheme.error // Make it red
+            )
+        }
+
+        // 2. The Clickable Item Info (for editing)
+        Column(
+            modifier = Modifier
+                .weight(1f) // This makes the clickable area fill the rest of the space
+                .clickable(onClick = onClick)
+                .padding(vertical = 12.dp), // Padding is now here
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = item.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "$${String.format(java.util.Locale.US, "%.2f", item.price)}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            // --- NEW: Show assigned people's initials ---
+            if (item.assignedPeople.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val initials = item.assignedPeople.joinToString(", ") {
+                    it.name.take(2).uppercase() // Get first 2 letters
+                }
+                Text(
+                    text = "Split by: $initials",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+// --- UI for the "Edit Item" pop-up dialog ---
+@Composable
+fun EditItemDialog(
+    item: ReceiptItem,
+    allPeople: List<Person>,
+    onDismiss: () -> Unit,
+    onSave: (String, Double, List<Person>) -> Unit
+) {
+    var editName by remember { mutableStateOf(TextFieldValue(item.name)) }
+    var editPrice by remember { mutableStateOf(TextFieldValue(item.price.toString())) }
+    var selectedPeople by remember { mutableStateOf(item.assignedPeople.toSet())}
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Edit Item", style = MaterialTheme.typography.titleLarge)
+
+                OutlinedTextField(
+                    value = editName,
+                    onValueChange = { editName = it },
+                    label = { Text("Item Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = editPrice,
+                    onValueChange = { editPrice = it },
+                    label = { Text("Price") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // --- Checklist of People ---
+                Text("Assign to:", style = MaterialTheme.typography.titleMedium)
+                LazyColumn {
+                    items(allPeople) { person ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    // Add or remove the person from the selected set
+                                    val newSet = selectedPeople.toMutableSet()
+                                    if (selectedPeople.contains(person)) {
+                                        newSet.remove(person)
+                                    } else {
+                                        newSet.add(person)
+                                    }
+                                    selectedPeople = newSet
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedPeople.contains(person),
+                                onCheckedChange = { isChecked ->
+                                    val newSet = selectedPeople.toMutableSet()
+                                    if (isChecked) {
+                                        newSet.add(person)
+                                    } else {
+                                        newSet.remove(person)
+                                    }
+                                    selectedPeople = newSet
+                                }
+                            )
+                            Text(person.name)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val newPrice = editPrice.text.toDoubleOrNull() ?: 0.0
+                            onSave(editName.text, newPrice, selectedPeople.toList())
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
+}
+
+data class PersonTotal(
+    val person: Person,
+    val subtotal: Double,
+    val taxShare: Double,
+    val tipShare: Double,
+    val totalOwed: Double
+)
+
+// --- UI for the Final Totals card ---
+@Composable
+fun TotalsDisplay(totals: List<PersonTotal>) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Totals Per Person",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+
+            // A row for each person
+            totals.forEach { personTotal ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = personTotal.person.name,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            // --- Grand Total ---
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            val grandTotal = totals.sumOf { it.totalOwed }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Grand Total",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "$${String.format(Locale.US, "%.2f", grandTotal)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+// --- THE CALCULATION LOGIC ---
+private fun calculateTotals(
+    people: List<Person>,
+    items: List<ReceiptItem>,
+    taxStr: String,
+    tipStr: String
+): List<PersonTotal> {
+
+    val totalTax = taxStr.toDoubleOrNull() ?: 0.0
+    val totalTip = tipStr.toDoubleOrNull() ?: 0.0
+
+    // 1. Calculate each person's subtotal
+    val personSubtotals = mutableMapOf<Person, Double>()
+    people.forEach { personSubtotals[it] = 0.0 } // Initialize all to 0
+
+    items.forEach { item ->
+        val numPeopleForItem = item.assignedPeople.size
+        if (numPeopleForItem > 0) {
+            val pricePerPerson = item.price / numPeopleForItem
+            item.assignedPeople.forEach { person ->
+                // Add this item's share to the person's subtotal
+                personSubtotals[person] = (personSubtotals[person] ?: 0.0) + pricePerPerson
+            }
+        }
+    }
+
+    // 2. Calculate the total subtotal that has been accounted for
+    val accountedForSubtotal = personSubtotals.values.sum()
+    if (accountedForSubtotal == 0.0) {
+        // Avoid division by zero; return empty list
+        return emptyList()
+    }
+
+    // 3. Calculate and return the final list
+    val finalTotals = mutableListOf<PersonTotal>()
+    personSubtotals.forEach { (person, subtotal) ->
+        // Find what percentage of the subtotal this person is responsible for
+        val percentageOfBill = subtotal / accountedForSubtotal
+
+        // Calculate their share of the tax and tip
+        val taxShare = totalTax * percentageOfBill
+        val tipShare = totalTip * percentageOfBill
+
+        // Calculate their final total
+        val totalOwed = subtotal + taxShare + tipShare
+
+        finalTotals.add(
+            PersonTotal(
+                person = person,
+                subtotal = subtotal,
+                taxShare = taxShare,
+                tipShare = tipShare,
+                totalOwed = totalOwed
+            )
+        )
+    }
+
+    return finalTotals
 }
