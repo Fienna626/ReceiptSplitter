@@ -48,6 +48,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Slider
+import com.example.receiptsplitter.data.Person
+import com.example.receiptsplitter.data.PersonTotal
+import com.example.receiptsplitter.data.ReceiptItem
+import com.example.receiptsplitter.screens.BillSplitterScreen
 
 
 class MainActivity : ComponentActivity() {
@@ -55,7 +59,7 @@ class MainActivity : ComponentActivity() {
     // --- STATE ---
     // This is the "source of truth" for our list of items.
     // It's now stored in the Activity, not in the composable.
-    private var receiptItems = mutableStateOf(listOf<ReceiptItem>())
+    private var receiptItem = mutableStateOf(listOf<ReceiptItem>())
 
     // This will hold the URI for the camera to save its photo to
     private var tempImageUri: Uri? = null
@@ -112,7 +116,7 @@ class MainActivity : ComponentActivity() {
                     // --- THE MAIN UI ---
                     BillSplitterScreen(
                         // Pass the item list down to the UI
-                        items = receiptItems.value,
+                        items = receiptItem.value,
 
                         // When the button is clicked, just show the dialog
                         onScanReceiptClick = { showOptionsDialog = true },
@@ -120,17 +124,17 @@ class MainActivity : ComponentActivity() {
                         // Pass a function to update the item
                         onUpdateItem = { updatedItem ->
                             // Find the item in our list and replace it
-                            val currentList = receiptItems.value.toMutableList()
+                            val currentList = receiptItem.value.toMutableList()
                             val index = currentList.indexOfFirst { it.id == updatedItem.id }
                             if (index != -1) {
                                 currentList[index] = updatedItem
-                                receiptItems.value = currentList
+                                receiptItem.value = currentList
                             }
                         },
                         onDeleteItem = { itemToDelete ->
-                            val currentList = receiptItems.value.toMutableList()
+                            val currentList = receiptItem.value.toMutableList()
                             currentList.remove(itemToDelete)
-                            receiptItems.value = currentList
+                            receiptItem.value = currentList
                         }
                     )
 
@@ -221,7 +225,7 @@ class MainActivity : ComponentActivity() {
                     val rawText = visionText.text
                     Log.d("TEXT_RECOGNITION", "Success: \n$rawText")
                     // Call the parser and update our state
-                    receiptItems.value = parseReceiptText(rawText)
+                    receiptItem.value = parseReceiptText(rawText)
                 }
                 .addOnFailureListener { e ->
                     Log.e("TEXT_RECOGNITION", "Failed:", e)
@@ -325,199 +329,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
-// --- DATA CLASSES (at the bottom of your file) ---
-
-data class Person(
-    val id: java.util.UUID = java.util.UUID.randomUUID(),
-    var name: String
-)
-
-data class ReceiptItem(
-    val id: java.util.UUID = java.util.UUID.randomUUID(),
-    var name: String,
-    var price: Double,
-    // A list of people who are splitting this item
-    val assignedPeople: MutableList<Person> = mutableListOf()
-)
-
-
-// --- COMPOSABLES (at the bottom of your file) ---
-
-// This is our NEW main screen.
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun BillSplitterScreen(
-    items: List<ReceiptItem>,
-    onScanReceiptClick: () -> Unit,
-    onUpdateItem: (ReceiptItem) -> Unit, // <-- to save edits
-    onDeleteItem: (ReceiptItem) -> Unit // <-- to delete item
-
-) {
-    // --- State for People ---
-    val people = remember { mutableStateOf(listOf(Person(name = "Person 1"))) }
-    val (editingItem, setEditingItem) = remember { mutableStateOf<ReceiptItem?>(null) }
-    // --- State for Tax and Tip ---
-    var taxInput by remember { mutableStateOf(TextFieldValue("")) }
-
-    // --- NEW: Change Tip to a percentage Float ---
-    // Start with a default tip of 18%
-    var tipPercent by remember { mutableStateOf(15f) }
-
-    // --- Get the activity to call the math function ---
-    val activity = (LocalActivity.current as? MainActivity)
-
-    // --- State for the breakdown dialog ---
-    val (viewingPerson, setViewingPerson) = remember { mutableStateOf<PersonTotal?>(null) }
-
-    // --- Calculate the total subtotal (for the tip) ---
-    val totalSubtotal = items.sumOf { it.price }
-
-    // --- Calculate the tip dollar amount ---
-    val calculatedTipAmount = totalSubtotal * (tipPercent / 100.0)
-
-    // --- UPDATED: Update the remember block ---
-    val calculatedTotals = remember(items, people.value, taxInput.text, tipPercent) { // <-- Use tipPercent
-        activity?.calculateTotals(
-            people.value,
-            items,
-            taxInput.text,
-            calculatedTipAmount.toString() // <-- Pass the calculated dollar amount
-        ) ?: emptyList()
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // --- 1. THE TOP BUTTON ---
-        Button(
-            onClick = onScanReceiptClick,
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text("Scan a New Receipt")
-        }
-
-        // --- 2. THE PEOPLE LIST ---
-        Text("People", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
-        PeopleList(
-            people = people.value,
-            onAddPerson = {
-                val newName = "Person ${people.value.size + 1}"
-                people.value = people.value + Person(name = newName)
-            },
-            onEditPersonName = { person, newName ->
-                val updatedList = people.value.map {
-                    if (it.id == person.id) it.copy(name = newName) else it
-                }
-                people.value = updatedList
-            },
-            onDeletePerson = { personToDelete ->
-                // 1. Remove the person from the main people list
-                people.value = people.value.filter { it.id != personToDelete.id }
-
-                // 2. Remove the person from any items they were assigned to
-                items.forEach { item ->
-                    if (item.assignedPeople.contains(personToDelete)) {
-                        val updatedItem = item.copy(
-                            assignedPeople = item.assignedPeople.filter { it.id != personToDelete.id }.toMutableList()
-                        )
-                        // Use the onUpdateItem function we already have!
-                        onUpdateItem(updatedItem)
-                    }
-                }
-            }
-        )
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-        // --- Tax and Tip Input Fields ---
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = taxInput,
-                onValueChange = { taxInput = it },
-                label = { Text("Total Tax") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = "${tipPercent.toInt()}%", // Show the current percent
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-        }
-        Slider(
-            value = tipPercent,
-            onValueChange = { tipPercent = it },
-            valueRange = 0f..30f, // From 0% to 30%
-            steps = 29, // This makes it snap to whole numbers (0, 1, 2...)
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-        // --- 3. THE ITEM LIST ---
-        Text("Items", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
-        // --- FIX: Use a non-scrolling Column ---
-        Column(modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)) {
-            // --- FIX: Just loop through the items ---
-            items.forEach { item ->
-                ItemRow(
-                    item = item,
-                    onClick = { setEditingItem(item) }, // Open the dialog when clicked
-                    onDeleteClick = { onDeleteItem(item) }
-                )
-            }
-        }
-
-        // --- 4. THE EDIT DIALOG ---
-        editingItem?.let { item ->
-            EditItemDialog(
-                item = item,
-                allPeople = people.value,
-                onDismiss = { setEditingItem(null) },
-                // --- FIX: Receive all three parameters ---
-                onSave = { updatedName, updatedPrice, assignedPeople ->
-                    // --- Save the changes ---
-                    val updatedItem = item.copy(
-                        name = updatedName,
-                        price = updatedPrice,
-                        // --- This line will now work! ---
-                        assignedPeople = assignedPeople.toMutableList()
-                    )
-                    // Call the function to update the list
-                    onUpdateItem(updatedItem)
-                    setEditingItem(null) // Close the dialog
-                }
-            )
-        }
-        // --- NEW! 5. THE TOTALS DISPLAY ---
-        // Show the totals card if there are any totals to show
-        if (calculatedTotals.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(16.dp))
-            TotalsDisplay(
-                totals = calculatedTotals,
-                onPersonClick = { personTotal -> // <-- FIX: Add this line
-                    setViewingPerson(personTotal) // Tell the screen to open the dialog
-                }
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-    // --- NEW: 6. THE BREAKDOWN DIALOG ---
-    viewingPerson?.let { personTotal ->
-        BreakdownDialog(
-            personTotal = personTotal,
-            allItems = items,
-            onDismiss = { setViewingPerson(null) }
-        )
-    }
-}
-
 // --- UI for the row of people ---
 @Composable
 fun PeopleList(
@@ -559,322 +370,3 @@ fun PeopleList(
     }
 }
 
-
-// --- UI for a single item row ---
-@Composable
-fun ItemRow(
-    item: ReceiptItem,
-    onClick: () -> Unit,
-    onDeleteClick: () -> Unit // <-- Renamed from onLongClick
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-
-        // 1. The Delete Button
-        IconButton(onClick = onDeleteClick) {
-            Icon(
-                imageVector = Icons.Default.Clear, // This is the 'X' icon
-                contentDescription = "Delete Item",
-                tint = MaterialTheme.colorScheme.error // Make it red
-            )
-        }
-
-        // 2. The Clickable Item Info (for editing)
-        Column(
-            modifier = Modifier
-                .weight(1f) // This makes the clickable area fill the rest of the space
-                .clickable(onClick = onClick)
-                .padding(vertical = 12.dp), // Padding is now here
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = item.name,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "$${String.format(java.util.Locale.US, "%.2f", item.price)}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            // --- NEW: Show assigned people's initials ---
-            if (item.assignedPeople.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val initials = item.assignedPeople.joinToString(", ") {
-                    it.name.take(2).uppercase() // Get first 2 letters
-                }
-                Text(
-                    text = "Split by: $initials",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-// --- UI for the "Edit Item" pop-up dialog ---
-@Composable
-fun EditItemDialog(
-    item: ReceiptItem,
-    allPeople: List<Person>,
-    onDismiss: () -> Unit,
-    onSave: (String, Double, List<Person>) -> Unit
-) {
-    var editName by remember { mutableStateOf(TextFieldValue(item.name)) }
-    var editPrice by remember { mutableStateOf(TextFieldValue(item.price.toString())) }
-    var selectedPeople by remember { mutableStateOf(item.assignedPeople.toSet())}
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Edit Item", style = MaterialTheme.typography.titleLarge)
-
-                OutlinedTextField(
-                    value = editName,
-                    onValueChange = { editName = it },
-                    label = { Text("Item Name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = editPrice,
-                    onValueChange = { editPrice = it },
-                    label = { Text("Price") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // --- Checklist of People ---
-                Text("Assign to:", style = MaterialTheme.typography.titleMedium)
-                // --- FIX: Use a regular Column with a constrained height ---
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 200.dp) // <-- Give it a max height (e.g., 200.dp)
-                        .verticalScroll(rememberScrollState()) // Make *this* column scrollable
-                ) {
-                    allPeople.forEach { person -> // <-- FIX: Use a simple loop
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    // ... (your existing click logic)
-                                    val newSet = selectedPeople.toMutableSet()
-                                    if (selectedPeople.contains(person)) {
-                                        newSet.remove(person)
-                                    } else {
-                                        newSet.add(person)
-                                    }
-                                    selectedPeople = newSet
-                                },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selectedPeople.contains(person),
-                                onCheckedChange = { isChecked ->
-                                    // ... (your existing check logic)
-                                    val newSet = selectedPeople.toMutableSet()
-                                    if (isChecked) {
-                                        newSet.add(person)
-                                    } else {
-                                        newSet.remove(person)
-                                    }
-                                    selectedPeople = newSet
-                                }
-                            )
-                            Text(person.name)
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            val newPrice = editPrice.text.toDoubleOrNull() ?: 0.0
-                            onSave(editName.text, newPrice, selectedPeople.toList())
-                        }
-                    ) {
-                        Text("Save")
-                    }
-                }
-            }
-        }
-    }
-}
-
-data class PersonTotal(
-    val person: Person,
-    val subtotal: Double,
-    val taxShare: Double,
-    val tipShare: Double,
-    val totalOwed: Double
-)
-
-// --- UI for the Final Totals card ---
-@Composable
-fun TotalsDisplay(totals: List<PersonTotal>, onPersonClick: (PersonTotal) -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Totals Per Person",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-
-            // A row for each person
-            totals.forEach { personTotal ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onPersonClick(personTotal) },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.padding(vertical = 4.dp)) { // <-- Add Column for detail
-                        Text(
-                            text = personTotal.person.name,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            text = "Sub: $${String.format(Locale.US, "%.2f", personTotal.subtotal)} " +
-                                    "Tax: $${String.format(Locale.US, "%.2f", personTotal.taxShare)} " +
-                                    "Tip: $${String.format(Locale.US, "%.2f", personTotal.tipShare)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        text = "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // --- Grand Total ---
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            val grandTotal = totals.sumOf { it.totalOwed }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Grand Total",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "$${String.format(Locale.US, "%.2f", grandTotal)}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    }
-}
-
-// --- NEW: UI for the Person Breakdown dialog ---
-@Composable
-fun BreakdownDialog(
-    personTotal: PersonTotal,
-    allItems: List<ReceiptItem>,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // --- Title ---
-                Text(
-                    text = "${personTotal.person.name}'s Bill",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-
-                // --- List of their items ---
-                Column(modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 300.dp) // Make it scrollable if too long
-                    .verticalScroll(rememberScrollState())
-                ) {
-                    // Find all items this person is assigned to
-                    allItems.forEach { item ->
-                        if (item.assignedPeople.contains(personTotal.person)) {
-                            // Calculate this person's share of the item
-                            val share = item.price / item.assignedPeople.size
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(item.name)
-                                Text("$${String.format(Locale.US, "%.2f", share)}")
-                            }
-                        }
-                    }
-                }
-
-                // --- Subtotal ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Subtotal", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.subtotal)}", style = MaterialTheme.typography.bodyMedium)
-                }
-
-                // --- Tax + Tip ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Tax Share", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.taxShare)}", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Tip Share", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.tipShare)}", style = MaterialTheme.typography.bodyMedium)
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                // --- Final Total ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Owed", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                // --- Dismiss Button ---
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("Close")
-                }
-            }
-        }
-    }
-}
