@@ -359,7 +359,6 @@ fun BillSplitterScreen(
     val (editingItem, setEditingItem) = remember { mutableStateOf<ReceiptItem?>(null) }
     // --- State for Tax and Tip ---
     var taxInput by remember { mutableStateOf(TextFieldValue("")) }
-    var tipInput by remember { mutableStateOf(TextFieldValue("")) }
 
     // --- NEW: Change Tip to a percentage Float ---
     // Start with a default tip of 18%
@@ -368,16 +367,9 @@ fun BillSplitterScreen(
     // --- Get the activity to call the math function ---
     val activity = (LocalActivity.current as? MainActivity)
 
-    // --- Calculate totals whenever data changes ---
-    // This 'remember' block will auto-recalculate when any of its "keys" change
-    val calculatedTotals = remember(items, people.value, taxInput.text, tipInput.text) {
-        activity?.calculateTotals(
-            people.value,
-            items,
-            taxInput.text,
-            tipInput.text
-        ) ?: emptyList() // If activity is null, return an empty list
-    }
+    // --- State for the breakdown dialog ---
+    val (viewingPerson, setViewingPerson) = remember { mutableStateOf<PersonTotal?>(null) }
+
     // --- Calculate the total subtotal (for the tip) ---
     val totalSubtotal = items.sumOf { it.price }
 
@@ -455,13 +447,6 @@ fun BillSplitterScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
-            OutlinedTextField(
-                value = tipInput,
-                onValueChange = { tipInput = it },
-                label = { Text("Total Tip") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
-            )
         }
         Slider(
             value = tipPercent,
@@ -473,7 +458,6 @@ fun BillSplitterScreen(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-        // --- 3. THE ITEM LIST ---
         // --- 3. THE ITEM LIST ---
         Text("Items", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
         // --- FIX: Use a non-scrolling Column ---
@@ -515,9 +499,22 @@ fun BillSplitterScreen(
         // Show the totals card if there are any totals to show
         if (calculatedTotals.isNotEmpty()) {
             Spacer(modifier = Modifier.height(16.dp))
-            TotalsDisplay(totals = calculatedTotals)
-            Spacer(modifier = Modifier.height(16.dp)) // Add space at the bottom
+            TotalsDisplay(
+                totals = calculatedTotals,
+                onPersonClick = { personTotal -> // <-- FIX: Add this line
+                    setViewingPerson(personTotal) // Tell the screen to open the dialog
+                }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+    // --- NEW: 6. THE BREAKDOWN DIALOG ---
+    viewingPerson?.let { personTotal ->
+        BreakdownDialog(
+            personTotal = personTotal,
+            allItems = items,
+            onDismiss = { setViewingPerson(null) }
+        )
     }
 }
 
@@ -734,7 +731,7 @@ data class PersonTotal(
 
 // --- UI for the Final Totals card ---
 @Composable
-fun TotalsDisplay(totals: List<PersonTotal>) {
+fun TotalsDisplay(totals: List<PersonTotal>, onPersonClick: (PersonTotal) -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -795,6 +792,88 @@ fun TotalsDisplay(totals: List<PersonTotal>) {
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+    }
+}
+
+// --- NEW: UI for the Person Breakdown dialog ---
+@Composable
+fun BreakdownDialog(
+    personTotal: PersonTotal,
+    allItems: List<ReceiptItem>,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // --- Title ---
+                Text(
+                    text = "${personTotal.person.name}'s Bill",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+
+                // --- List of their items ---
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp) // Make it scrollable if too long
+                    .verticalScroll(rememberScrollState())
+                ) {
+                    // Find all items this person is assigned to
+                    allItems.forEach { item ->
+                        if (item.assignedPeople.contains(personTotal.person)) {
+                            // Calculate this person's share of the item
+                            val share = item.price / item.assignedPeople.size
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(item.name)
+                                Text("$${String.format(Locale.US, "%.2f", share)}")
+                            }
+                        }
+                    }
+                }
+
+                // --- Subtotal ---
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Subtotal", style = MaterialTheme.typography.bodyMedium)
+                    Text("$${String.format(Locale.US, "%.2f", personTotal.subtotal)}", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                // --- Tax + Tip ---
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Tax Share", style = MaterialTheme.typography.bodyMedium)
+                    Text("$${String.format(Locale.US, "%.2f", personTotal.taxShare)}", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Tip Share", style = MaterialTheme.typography.bodyMedium)
+                    Text("$${String.format(Locale.US, "%.2f", personTotal.tipShare)}", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- Final Total ---
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Total Owed", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // --- Dismiss Button ---
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Close")
+                }
             }
         }
     }
