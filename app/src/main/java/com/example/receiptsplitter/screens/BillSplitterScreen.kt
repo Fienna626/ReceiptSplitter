@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -79,7 +81,7 @@ fun BillSplitterScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // --- 1. THE TOP BUTTON ---
@@ -153,14 +155,17 @@ fun BillSplitterScreen(
         // --- 3. THE ITEM LIST ---
         Text("Items", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
         // --- FIX: Use a non-scrolling Column ---
-        Column(modifier = Modifier
+        LazyColumn(modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)) {
-            // --- FIX: Just loop through the items ---
-            items.forEach { item ->
+            .padding(horizontal = 16.dp)
+            // --- FIX: ADD WEIGHT ---
+            .weight(1f) // <-- Add this crucial line
+        ) {
+            // --- FIX: Use items builder ---
+            items(items, key = { it.id }) { item ->
                 ItemRow(
                     item = item,
-                    onClick = { setEditingItem(item) }, // Open the dialog when clicked
+                    onClick = { setEditingItem(item) },
                     onDeleteClick = { onDeleteItem(item) }
                 )
             }

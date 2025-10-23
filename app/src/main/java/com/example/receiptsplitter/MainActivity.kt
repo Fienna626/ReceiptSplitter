@@ -237,10 +237,10 @@ class MainActivity : ComponentActivity() {
 
     fun parseReceiptText(rawText: String): List<ReceiptItem> {
         // We are using the "greedy" regex to get the LAST price on the line
-        val regex = "(.+)[ ]+(\\d+\\.\\d{2})".toRegex()
+        val regex = "(.+)\\s+\\$(\\d+\\.\\d{2})".toRegex()
         val ignoreKeywords = listOf("SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "YOUR ORDER")
-
         val items = mutableListOf<ReceiptItem>()
+
 
         rawText.lines().forEach { line ->
             val shouldIgnore = ignoreKeywords.any { keyword ->
@@ -254,11 +254,12 @@ class MainActivity : ComponentActivity() {
                     val price = priceStr.toDoubleOrNull() ?: 0.0
 
                     // Clean the name by splitting at the "@"
-                    val cleanName = if (name.contains("@")) {
+                    var cleanName = if (name.contains("@")) {
                         name.split("@")[0].trim()
                     } else {
                         name.trim()
                     }
+                    cleanName = cleanName.replaceFirst("^\\d+\\s+".toRegex(), "").trim()
 
                     if (cleanName.isNotEmpty() && price > 0.0) {
                         items.add(ReceiptItem(name = cleanName, price = price))
