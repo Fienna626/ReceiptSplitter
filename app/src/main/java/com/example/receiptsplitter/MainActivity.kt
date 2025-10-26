@@ -33,7 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
 import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme
 import com.google.mlkit.vision.common.InputImage
@@ -49,24 +49,42 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Slider
+import androidx.lifecycle.ViewModelProvider
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.receiptsplitter.data.Person
 import com.example.receiptsplitter.data.PersonTotal
 import com.example.receiptsplitter.data.ReceiptItem
 import com.example.receiptsplitter.screens.BillSplitterScreen
+import com.example.receiptsplitter.screens.HomeScreen
+import com.example.receiptsplitter.data.SavedReceiptSummary
+import java.text.SimpleDateFormat
+import java.util.Date
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.receiptsplitter.data.AppDatabase
+import com.example.receiptsplitter.viewmodel.ReceiptViewModel
+import com.example.receiptsplitter.viewmodel.ReceiptViewModelFactory
+import androidx.lifecycle.viewModelScope
+import com.example.receiptsplitter.data.toSummary
 
 
 class MainActivity : ComponentActivity() {
 
     // --- STATE ---
-    // This is the "source of truth" for our list of items.
-    // It's now stored in the Activity, not in the composable.
-    private var receiptItem = mutableStateOf(listOf<ReceiptItem>())
+    private val database by lazy { AppDatabase.getDatabase(this) }
+    private val receiptDao by lazy { database.receiptDao() }
+
+    private val viewModel: ReceiptViewModel by lazy {
+        ViewModelProvider(this, ReceiptViewModelFactory(receiptDao))
+            .get(ReceiptViewModel::class.java)
+    }
 
     // This will hold the URI for the camera to save its photo to
     private var tempImageUri: Uri? = null
 
     // --- LAUNCHERS ---
-    // We register all the launchers here, in onCreate
+    // Register all the launchers here, in onCreate
 
     // Launcher for picking an image from the GALLERY
     private val galleryLauncher = registerForActivityResult(
@@ -95,7 +113,11 @@ class MainActivity : ComponentActivity() {
             launchCamera()
         } else {
             // Permission was denied
-            Toast.makeText(this, "Camera permission is required to use the camera.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Camera permission is required to use the camera.",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -107,96 +129,106 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ReceiptSplitterTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                val navController = rememberNavController()
 
-                    // --- DIALOG STATE ---
-                    // This state lives here so the Activity can control the dialogs
-                    var showOptionsDialog by remember { mutableStateOf(false) }
-                    var showPermissionDialog by remember { mutableStateOf(false) }
+                // --- Get ViewModel Instance ---
+                val viewModel: ReceiptViewModel = viewModel(
+                    factory = ReceiptViewModelFactory(receiptDao) // Use the factory
+                )
 
-                    // --- THE MAIN UI ---
-                    BillSplitterScreen(
-                        // Pass the item list down to the UI
-                        items = receiptItem.value,
+                // --- Collect State from ViewModel ---
+                val savedReceiptsList by viewModel.savedReceipts.collectAsState()
+                val currentReceiptItems by viewModel.receiptItems.collectAsState()
 
-                        // When the button is clicked, just show the dialog
-                        onScanReceiptClick = { showOptionsDialog = true },
-
-                        // Pass a function to update the item
-                        onUpdateItem = { updatedItem ->
-                            // Find the item in our list and replace it
-                            val currentList = receiptItem.value.toMutableList()
-                            val index = currentList.indexOfFirst { it.id == updatedItem.id }
-                            if (index != -1) {
-                                currentList[index] = updatedItem
-                                receiptItem.value = currentList
-                            }
-                        },
-                        onDeleteItem = { itemToDelete ->
-                            val currentList = receiptItem.value.toMutableList()
-                            currentList.remove(itemToDelete)
-                            receiptItem.value = currentList
-                        }
-                    )
-
-
-                    // --- DIALOGS ---
-                    // The dialogs are part of the UI, controlled by the state
-
-                    // Dialog 1: "Choose an option"
-                    if (showOptionsDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showOptionsDialog = false },
-                            title = { Text("Scan a new receipt") },
-                            text = { Text("How do you want to add your receipt?") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        showOptionsDialog = false
-                                        showPermissionDialog = true // Show permission dialog
-                                    }
-                                ) { Text("Open Camera") }
+                NavHost(
+                    navController = navController,
+                    startDestination = NavRoutes.HOME_SCREEN // Start on the home screen
+                ) {
+                    // --- Home Screen Destination ---
+                    composable(NavRoutes.HOME_SCREEN) {
+                        HomeScreen(
+                            savedReceipts = savedReceiptsList,
+                            onNavigateToSplitter = {
+                                viewModel.clearCurrentItems() // Clear items before navigating
+                                navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN)
                             },
-                            dismissButton = {
-                                TextButton(
-                                    onClick = {
-                                        showOptionsDialog = false
-                                        // Launch the gallery
-                                        galleryLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            onDeleteReceipt = { receiptToDelete ->
+                                viewModel.deleteSavedReceipt(receiptToDelete)
+                            },
+                            onReceiptClick = { receipt ->
+                                Log.d("NAV", "Clicked receipt: ${receipt.id}")
+                            }
+                        )
+                    } // <-- End of Home Screen Composable
+
+                    // --- Bill Splitter Screen Destination ---
+                    composable(NavRoutes.BILL_SPLITTER_SCREEN) { // <-- WRAP EVERYTHING IN THIS
+                        // --- MOVE DIALOG STATE INSIDE HERE ---
+                        var showOptionsDialog by remember { mutableStateOf(false) }
+                        var showPermissionDialog by remember { mutableStateOf(false) }
+
+                        // --- MOVE BILLSPLITTER CALL INSIDE HERE ---
+                        BillSplitterScreen(
+                            items = currentReceiptItems, // Use state from ViewModel
+                            onScanReceiptClick = { showOptionsDialog = true },
+                            onUpdateItem = viewModel::updateReceiptItem, // Pass ViewModel function reference
+                            onDeleteItem = viewModel::deleteReceiptItem, // Pass ViewModel function reference
+                            onSaveAndExit = { finalTotals ->
+                                viewModel.saveCurrentReceipt(finalTotals) // Call ViewModel function
+                                navController.popBackStack()
+                            },
+                            onNavigateBack = { navController.navigateUp() }
+                        )
+
+                        // --- MOVE DIALOGS INSIDE HERE ---
+                        if (showOptionsDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showOptionsDialog = false },
+                                title = { Text("Scan a new receipt") },
+                                text = { Text("How do you want to add your receipt?") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showOptionsDialog = false; showPermissionDialog = true
+                                    }) { Text("Open Camera") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = {
+                                        showOptionsDialog = false; galleryLauncher.launch(
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly
                                         )
-                                    }
-                                ) { Text("From Gallery") }
-                            }
-                        )
-                    }
+                                    )
+                                    }) { Text("From Gallery") }
+                                }
+                            )
+                        }
 
-                    // Dialog 2: "Camera Permission"
-                    if (showPermissionDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showPermissionDialog = false },
-                            title = { Text("Camera Permission Needed") },
-                            text = { Text("We need camera access to scan your receipt directly.") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
+                        if (showPermissionDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showPermissionDialog = false },
+                                title = { Text("Camera Permission Needed") },
+                                text = { Text("We need camera access to scan your receipt directly.") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showPermissionDialog = false; permissionLauncher.launch(
+                                        Manifest.permission.CAMERA
+                                    )
+                                    }) { Text("Continue") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = {
                                         showPermissionDialog = false
-                                        permissionLauncher.launch(Manifest.permission.CAMERA)
-                                    }
-                                ) { Text("Continue") }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") }
-                            }
-                        )
-                    }
-                }
-            }
+                                    }) { Text("Cancel") }
+                                }
+                            )
+                        }
+                    } // <-- End of Bill Splitter Composable
+                } // <-- End of NavHost
+            } // <-- End of Theme
         }
     }
 
     // --- HELPER FUNCTIONS ---
-
     private fun getTempUri(context: Context): Uri {
         val file = File.createTempFile("temp_image", ".jpg", context.cacheDir)
         return FileProvider.getUriForFile(
@@ -222,87 +254,54 @@ class MainActivity : ComponentActivity() {
         try {
             val inputImage = InputImage.fromFilePath(this, uri)
             textRecognizer.process(inputImage)
-                .addOnSuccessListener { visionText ->
-                    // Store elements with their bounding boxes
+                .addOnSuccessListener { visionText -> // ML Kit processing successful
+
+                    // 1. --- Collect Elements and Coordinates ---
                     val elementsWithBoxes = mutableListOf<Pair<String, Rect>>()
-// Store potential prices separately for easier lookup
                     val potentialPrices = mutableListOf<Pair<String, Rect>>()
-                    val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex() // Regex to find prices
+                    val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex()
 
                     for (block in visionText.textBlocks) {
                         for (line in block.lines) {
                             for (element in line.elements) {
                                 val elementText = element.text
-                                val elementFrame = element.boundingBox // This is the Rect object!
+                                val elementFrame = element.boundingBox
 
                                 if (elementFrame != null) {
                                     elementsWithBoxes.add(Pair(elementText, elementFrame))
-
                                     // Check if this element looks like a price
-                                    if (priceRegex.matches(elementText)) {
+                                    if (priceRegex.matches(elementText.replace("$", ""))) { // Check against text without '$'
                                         potentialPrices.add(Pair(elementText, elementFrame))
                                     }
                                 }
-                                Log.d("ML_KIT_COORDS", "Element: '$elementText' at ${elementFrame?.flattenToString()}")
+                                // Log.d("ML_KIT_COORDS", ...)
                             }
-                            Log.d("ML_KIT_COORDS", "--- End Line ---")
                         }
-                        Log.d("ML_KIT_COORDS", "----- End Block -----")
                     }
+                    // --- End Collection ---
 
-// --- Now, implement your logic ---
-// 1. Filter out prices from elementsWithBoxes to get potential item words.
-// 2. Group potential item words based on proximity (are they on the same line?).
-// 3. For each group/item name, find the most likely price from potentialPrices
-//    based on X/Y coordinates (e.g., closest price to the right on the same Y level).
-// 4. Create ReceiptItem objects.
 
-// Placeholder: Replace this with your actual logic
+                    // 2. --- Parse Using Coordinates (AFTER collecting) ---
                     val parsedItems = parseUsingCoordinates(elementsWithBoxes, potentialPrices)
-                    receiptItem.value = parsedItems
-                }
+
+
+                    // 3. --- Update ViewModel (Directly, NO viewModelScope.launch) ---
+                    viewModel.setCurrentItems(parsedItems) // 'viewModel' is the instance from MainActivity
+
+
+                } // End addOnSuccessListener
                 .addOnFailureListener { e ->
                     Log.e("TEXT_RECOGNITION", "Failed:", e)
+                    // Optionally update ViewModel with error state or empty list
+                    viewModel.setCurrentItems(emptyList())
                 }
         } catch (e: Exception) {
-            Log.e("TEXT_RECOGNITION", "Error:", e)
+            Log.e("TEXT_RECOGNITION", "Error processing input image:", e)
+            // Optionally update ViewModel with error state or empty list
+            viewModel.setCurrentItems(emptyList())
         }
     }
 
-    fun parseReceiptText(rawText: String): List<ReceiptItem> {
-        // We are using the "greedy" regex to get the LAST price on the line
-        val regex = "(.+)\\s+\\$(\\d+\\.\\d{2})".toRegex()
-        val ignoreKeywords = listOf("SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "YOUR ORDER")
-        val items = mutableListOf<ReceiptItem>()
-
-
-        rawText.lines().forEach { line ->
-            val shouldIgnore = ignoreKeywords.any { keyword ->
-                line.uppercase().contains(keyword)
-            }
-
-            if (!shouldIgnore) {
-                val match = regex.find(line)
-                if (match != null) {
-                    val (name, priceStr) = match.destructured
-                    val price = priceStr.toDoubleOrNull() ?: 0.0
-
-                    // Clean the name by splitting at the "@"
-                    var cleanName = if (name.contains("@")) {
-                        name.split("@")[0].trim()
-                    } else {
-                        name.trim()
-                    }
-                    cleanName = cleanName.replaceFirst("^\\d+\\s+".toRegex(), "").trim()
-
-                    if (cleanName.isNotEmpty() && price > 0.0) {
-                        items.add(ReceiptItem(name = cleanName, price = price))
-                    }
-                }
-            }
-        }
-        return items
-    }
     // --- THE CALCULATION LOGIC ---
     fun calculateTotals(
         people: List<Person>,
@@ -362,153 +361,133 @@ class MainActivity : ComponentActivity() {
 
         return finalTotals
     }
-}
-// --- Coordinate-Based Parsing Logic ---
-private fun parseUsingCoordinates(
-    elementsWithBoxes: List<Pair<String, Rect>>,
-    potentialPrices: List<Pair<String, Rect>>
 
 
-): List<ReceiptItem> {
-    // A helper function to check if two rectangles vertically overlap significantly
-    fun verticallyOverlaps(rect1: Rect, rect2: Rect): Boolean {
-        val overlapThreshold = (rect1.height() + rect2.height()) / 4 // Allow some vertical leeway
-        return rect1.top < rect2.bottom - overlapThreshold && rect1.bottom > rect2.top + overlapThreshold
-    }
+    // --- Coordinate-Based Parsing Logic ---
+    private fun parseUsingCoordinates(
+        elementsWithBoxes: List<Pair<String, Rect>>,
+        potentialPrices: List<Pair<String, Rect>>
 
-    // Group elements roughly by line based on vertical overlap
-    val lines = mutableListOf<MutableList<Pair<String, Rect>>>()
-    val processedElements = mutableSetOf<Pair<String, Rect>>() // Keep track of elements already added
 
-    elementsWithBoxes.forEach { element ->
-        if (element !in processedElements) {
-            val currentLine = mutableListOf(element)
-            processedElements.add(element)
-
-            // Find other elements that overlap vertically with this one
-            elementsWithBoxes.forEach { otherElement ->
-                if (otherElement !in processedElements && verticallyOverlaps(element.second, otherElement.second)) {
-                    currentLine.add(otherElement)
-                    processedElements.add(otherElement)
-                }
-            }
-            // Sort elements on the line by their horizontal position (left to right)
-            currentLine.sortBy { it.second.left }
-            lines.add(currentLine)
-        }
-    }
-
-    // Sort the lines roughly from top to bottom
-    lines.sortBy { it.firstOrNull()?.second?.top ?: 0 }
-
-    Log.d("COORD_PARSE", "Found ${lines.size} potential lines.")
-
-    val items = mutableListOf<ReceiptItem>()
-    val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex() // Regex to find price shape
-    val ignoreKeywords = listOf(
-        "SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "ORDER",
-        "TABLE", "CLOVER", "TIP", "THANK", "VISITING"
-    ) // More comprehensive ignore list
-    val dateRegex = "\\d{1,2}-\\w{3}-\\d{4}".toRegex() // Simple date pattern
-
-    lines.forEach { lineElements ->
-
-        // Basic check to ignore lines that are mostly numbers or likely headers/footers
-        val lineText = lineElements.joinToString(" ") { it.first }
-
-        // --- THIS is the combined check ---
-        if (ignoreKeywords.any { lineText.uppercase().contains(it) } || dateRegex.containsMatchIn(lineText)) {
-            // Log.d("COORD_PARSE", "Ignoring line (keyword/date): $lineText")
-            return@forEach // Skip this line
+    ): List<ReceiptItem> {
+        // A helper function to check if two rectangles vertically overlap significantly
+        fun verticallyOverlaps(rect1: Rect, rect2: Rect): Boolean {
+            val overlapThreshold =
+                (rect1.height() + rect2.height()) / 4 // Allow some vertical leeway
+            return rect1.top < rect2.bottom - overlapThreshold && rect1.bottom > rect2.top + overlapThreshold
         }
 
-        val words = mutableListOf<Pair<String, Rect>>()
-        val pricesOnLine = mutableListOf<Pair<Double, Rect>>()
+        // Group elements roughly by line based on vertical overlap
+        val lines = mutableListOf<MutableList<Pair<String, Rect>>>()
+        val processedElements =
+            mutableSetOf<Pair<String, Rect>>() // Keep track of elements already added
 
-        // Separate words and prices on this line
-        lineElements.forEach { (text, rect) ->
-            // Try to match the price pattern, allowing optional '$'
-            val priceMatch = priceRegex.matchEntire(text.replace("$", ""))
-            if (priceMatch != null) {
-                // It looks like a price, try converting
-                priceMatch.groupValues.getOrNull(1)?.toDoubleOrNull()?.let { priceValue ->
-                    pricesOnLine.add(Pair(priceValue, rect))
-                }
-            } else {
-                // It's not just a price, consider it a word if it's not tiny/numeric
-                if (text.length > 1 || text.any { it.isLetter() }) {
-                    words.add(Pair(text, rect))
-                }
-            }
-        }
-        if (words.isNotEmpty() && pricesOnLine.isNotEmpty()) {
-            // Find the price element furthest to the right
-            val bestPricePair = pricesOnLine.maxByOrNull { it.second.right }
+        elementsWithBoxes.forEach { element ->
+            if (element !in processedElements) {
+                val currentLine = mutableListOf(element)
+                processedElements.add(element)
 
-            if (bestPricePair != null) {
-                // Combine words that appear *before* the chosen price
-                val potentialNameWords = words.filter { it.second.right < bestPricePair.second.left }
-                var potentialName = potentialNameWords.joinToString(" ") { it.first }
-
-                // Simple cleaning
-                potentialName = potentialName.replaceFirst("^\\d+\\s+".toRegex(), "").trim() // Remove leading qty
-                potentialName = potentialName.replaceFirst("\\s+[^A-Za-z0-9]+$".toRegex(), "").trim() // Remove trailing symbols
-
-                if (potentialName.isNotEmpty()) {
-                    Log.d("COORD_PARSE", "   -> Associated: '$potentialName' with price ${bestPricePair.first}")
-                    items.add(ReceiptItem(name = potentialName, price = bestPricePair.first))
-                } else {
-                    Log.d("COORD_PARSE", "   -> Found price ${bestPricePair.first} but name was empty after cleaning on line: $lineText")
-                }
-            } else {
-                Log.d("COORD_PARSE", "   -> Found words but couldn't determine best price on line: $lineText")
-            }
-        } else {
-            // Log.d("COORD_PARSE", "   -> No clear words/prices found on line: $lineText")
-        }
-    } // End of loop through lines
-
-    return items
-}
-
-// --- UI for the row of people ---
-@Composable
-fun PeopleList(
-    people: List<Person>,
-    onAddPerson: () -> Unit,
-    onEditPersonName: (Person, String) -> Unit,
-    onDeletePerson: (Person) -> Unit
-) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items(people) { person ->
-            var personName by remember { mutableStateOf(TextFieldValue(person.name)) }
-
-            OutlinedTextField(
-                value = personName,
-                onValueChange = {
-                    personName = it
-                    onEditPersonName(person, it.text)
-                },
-                label = { Text("Name") },
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { onDeletePerson(person) }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Remove Person")
+                // Find other elements that overlap vertically with this one
+                elementsWithBoxes.forEach { otherElement ->
+                    if (otherElement !in processedElements && verticallyOverlaps(
+                            element.second,
+                            otherElement.second
+                        )
+                    ) {
+                        currentLine.add(otherElement)
+                        processedElements.add(otherElement)
                     }
-                },
-                modifier = Modifier.width(170.dp)
-            )
-        }
-
-        item {
-            IconButton(onClick = onAddPerson) {
-                Icon(Icons.Default.Add, contentDescription = "Add Person")
+                }
+                // Sort elements on the line by their horizontal position (left to right)
+                currentLine.sortBy { it.second.left }
+                lines.add(currentLine)
             }
         }
+
+        // Sort the lines roughly from top to bottom
+        lines.sortBy { it.firstOrNull()?.second?.top ?: 0 }
+
+        Log.d("COORD_PARSE", "Found ${lines.size} potential lines.")
+
+        val items = mutableListOf<ReceiptItem>()
+        val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex() // Regex to find price shape
+        val ignoreKeywords = listOf(
+            "SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "ORDER",
+            "TABLE", "CLOVER", "TIP", "THANK", "VISITING"
+        ) // More comprehensive ignore list
+        val dateRegex = "\\d{1,2}-\\w{3}-\\d{4}".toRegex() // Simple date pattern
+
+        lines.forEach { lineElements ->
+
+            // Basic check to ignore lines that are mostly numbers or likely headers/footers
+            val lineText = lineElements.joinToString(" ") { it.first }
+
+            // --- THIS is the combined check ---
+            if (ignoreKeywords.any {
+                    lineText.uppercase().contains(it)
+                } || dateRegex.containsMatchIn(lineText)) {
+                // Log.d("COORD_PARSE", "Ignoring line (keyword/date): $lineText")
+                return@forEach // Skip this line
+            }
+
+            val words = mutableListOf<Pair<String, Rect>>()
+            val pricesOnLine = mutableListOf<Pair<Double, Rect>>()
+
+            // Separate words and prices on this line
+            lineElements.forEach { (text, rect) ->
+                // Try to match the price pattern, allowing optional '$'
+                val priceMatch = priceRegex.matchEntire(text.replace("$", ""))
+                if (priceMatch != null) {
+                    // It looks like a price, try converting
+                    priceMatch.groupValues.getOrNull(1)?.toDoubleOrNull()?.let { priceValue ->
+                        pricesOnLine.add(Pair(priceValue, rect))
+                    }
+                } else {
+                    // It's not just a price, consider it a word if it's not tiny/numeric
+                    if (text.length > 1 || text.any { it.isLetter() }) {
+                        words.add(Pair(text, rect))
+                    }
+                }
+            }
+            if (words.isNotEmpty() && pricesOnLine.isNotEmpty()) {
+                // Find the price element furthest to the right
+                val bestPricePair = pricesOnLine.maxByOrNull { it.second.right }
+
+                if (bestPricePair != null) {
+                    // Combine words that appear *before* the chosen price
+                    val potentialNameWords =
+                        words.filter { it.second.right < bestPricePair.second.left }
+                    var potentialName = potentialNameWords.joinToString(" ") { it.first }
+
+                    // Simple cleaning
+                    potentialName = potentialName.replaceFirst("^\\d+\\s+".toRegex(), "")
+                        .trim() // Remove leading qty
+                    potentialName = potentialName.replaceFirst("\\s+[^A-Za-z0-9]+$".toRegex(), "")
+                        .trim() // Remove trailing symbols
+
+                    if (potentialName.isNotEmpty()) {
+                        Log.d(
+                            "COORD_PARSE",
+                            "   -> Associated: '$potentialName' with price ${bestPricePair.first}"
+                        )
+                        items.add(ReceiptItem(name = potentialName, price = bestPricePair.first))
+                    } else {
+                        Log.d(
+                            "COORD_PARSE",
+                            "   -> Found price ${bestPricePair.first} but name was empty after cleaning on line: $lineText"
+                        )
+                    }
+                } else {
+                    Log.d(
+                        "COORD_PARSE",
+                        "   -> Found words but couldn't determine best price on line: $lineText"
+                    )
+                }
+            } else {
+                // Log.d("COORD_PARSE", "   -> No clear words/prices found on line: $lineText")
+            }
+        } // End of loop through lines
+
+        return items
     }
 }
-

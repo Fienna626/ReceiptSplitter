@@ -8,6 +8,7 @@ pluginManagement {
             }
         }
         mavenCentral()
+        // Add this line to resolve plugins from the Gradle Plugin Portal
         gradlePluginPortal()
     }
 }
@@ -21,4 +22,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "Receipt Splitter"
 include(":app")
- 

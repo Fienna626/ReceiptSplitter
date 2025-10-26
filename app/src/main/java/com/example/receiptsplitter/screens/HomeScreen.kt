@@ -12,20 +12,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.receiptsplitter.data.PersonTotal // Import needed data class
 import java.util.Date // For timestamp
 import java.text.SimpleDateFormat
 import java.util.Locale
-
-// Simple data class to represent a saved receipt summary
-// In a real app, this would come from a database
-data class SavedReceiptSummary(
-    val id: String = java.util.UUID.randomUUID().toString(), // Unique ID
-    val description: String, // e.g., "Dinner at..." or a timestamp
-    val timestamp: Long = System.currentTimeMillis(),
-    val grandTotal: Double,
-    val personTotals: List<PersonTotal> // Store the calculated breakdown
-)
+import com.example.receiptsplitter.data.SavedReceiptSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
