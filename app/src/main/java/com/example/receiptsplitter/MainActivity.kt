@@ -1,80 +1,56 @@
 package com.example.receiptsplitter
 
 import android.Manifest
-import android.graphics.Rect
 import android.content.Context
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.LocalActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
-import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.io.File
-import java.util.Locale
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Checkbox
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Slider
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope // Needed for launching coroutine from callback
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.receiptsplitter.data.AppDatabase
 import com.example.receiptsplitter.data.Person
 import com.example.receiptsplitter.data.PersonTotal
 import com.example.receiptsplitter.data.ReceiptItem
+import com.example.receiptsplitter.data.SavedReceiptEntity // Needed for DB interaction
+import com.example.receiptsplitter.data.toEntity // Needed for DB interaction
 import com.example.receiptsplitter.screens.BillSplitterScreen
 import com.example.receiptsplitter.screens.HomeScreen
-import com.example.receiptsplitter.data.SavedReceiptSummary
-import java.text.SimpleDateFormat
-import java.util.Date
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.receiptsplitter.data.AppDatabase
+import com.example.receiptsplitter.data.SavedReceiptSummary // UI Model
+import com.example.receiptsplitter.screens.SetupScreen
+import com.example.receiptsplitter.screens.SummaryScreen
+import com.example.receiptsplitter.screens.TipScreen
+import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme
 import com.example.receiptsplitter.viewmodel.ReceiptViewModel
 import com.example.receiptsplitter.viewmodel.ReceiptViewModelFactory
-import androidx.lifecycle.viewModelScope
-import com.example.receiptsplitter.data.toSummary
-
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.launch // Needed for launching coroutine
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
 
-    // --- STATE ---
+    // --- Database & ViewModel ---
     private val database by lazy { AppDatabase.getDatabase(this) }
     private val receiptDao by lazy { database.receiptDao() }
-
     private val viewModel: ReceiptViewModel by lazy {
         ViewModelProvider(this, ReceiptViewModelFactory(receiptDao))
             .get(ReceiptViewModel::class.java)
@@ -84,9 +60,6 @@ class MainActivity : ComponentActivity() {
     private var tempImageUri: Uri? = null
 
     // --- LAUNCHERS ---
-    // Register all the launchers here, in onCreate
-
-    // Launcher for picking an image from the GALLERY
     private val galleryLauncher = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -95,7 +68,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Launcher for taking a picture with the CAMERA
     private val cameraLauncher = registerForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
@@ -104,149 +76,173 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Launcher for requesting CAMERA PERMISSION
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            // Permission was granted, launch the camera!
-            launchCamera()
+            launchCamera() // Permission granted, launch camera
         } else {
-            // Permission was denied
-            Toast.makeText(
-                this,
-                "Camera permission is required to use the camera.",
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, "Camera permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Initialize the temp URI once
-        tempImageUri = getTempUri(this)
+        tempImageUri = getTempUri(this) // Initialize temp URI once
 
         setContent {
             ReceiptSplitterTheme {
                 val navController = rememberNavController()
 
-                // --- Get ViewModel Instance ---
-                val viewModel: ReceiptViewModel = viewModel(
-                    factory = ReceiptViewModelFactory(receiptDao) // Use the factory
-                )
-
-                // --- Collect State from ViewModel ---
+                // Collect State from ViewModel
                 val savedReceiptsList by viewModel.savedReceipts.collectAsState()
                 val currentReceiptItems by viewModel.receiptItems.collectAsState()
+                val currentPeople by viewModel.currentPeople.collectAsState()
+                val finalTotals by viewModel.finalTotals.collectAsState()
 
+                // Dialog State (Managed by Activity's Composable Scope)
+                var showOptionsDialog by remember { mutableStateOf(false) }
+                var showPermissionDialog by remember { mutableStateOf(false) }
+
+                // --- Navigation Graph ---
                 NavHost(
                     navController = navController,
-                    startDestination = NavRoutes.HOME_SCREEN // Start on the home screen
+                    startDestination = NavRoutes.HOME_SCREEN
                 ) {
-                    // --- Home Screen Destination ---
                     composable(NavRoutes.HOME_SCREEN) {
                         HomeScreen(
                             savedReceipts = savedReceiptsList,
                             onNavigateToSplitter = {
-                                viewModel.clearCurrentItems() // Clear items before navigating
-                                navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN)
+                                viewModel.clearCurrentItems() // Clears items AND people in ViewModel
+                                navController.navigate(NavRoutes.SETUP_SCREEN) // Navigate to Setup
                             },
-                            onDeleteReceipt = { receiptToDelete ->
-                                viewModel.deleteSavedReceipt(receiptToDelete)
-                            },
+                            onDeleteReceipt = viewModel::deleteSavedReceipt, // Call ViewModel function
                             onReceiptClick = { receipt ->
                                 Log.d("NAV", "Clicked receipt: ${receipt.id}")
+                                // TODO: Navigate to details screen
                             }
                         )
-                    } // <-- End of Home Screen Composable
+                    }
 
-                    // --- Bill Splitter Screen Destination ---
-                    composable(NavRoutes.BILL_SPLITTER_SCREEN) { // <-- WRAP EVERYTHING IN THIS
-                        // --- MOVE DIALOG STATE INSIDE HERE ---
-                        var showOptionsDialog by remember { mutableStateOf(false) }
-                        var showPermissionDialog by remember { mutableStateOf(false) }
-
-                        // --- MOVE BILLSPLITTER CALL INSIDE HERE ---
-                        BillSplitterScreen(
-                            items = currentReceiptItems, // Use state from ViewModel
-                            onScanReceiptClick = { showOptionsDialog = true },
-                            onUpdateItem = viewModel::updateReceiptItem, // Pass ViewModel function reference
-                            onDeleteItem = viewModel::deleteReceiptItem, // Pass ViewModel function reference
-                            onSaveAndExit = { finalTotals ->
-                                viewModel.saveCurrentReceipt(finalTotals) // Call ViewModel function
-                                navController.popBackStack()
-                            },
-                            onNavigateBack = { navController.navigateUp() }
+                    composable(NavRoutes.SETUP_SCREEN) {
+                        SetupScreen(
+                            onNavigateBack = { navController.navigateUp() },
+                            onScanReceiptClick = { showOptionsDialog = true }, // Trigger dialog SHOW
+                            onProceedToSplit = { peopleList ->
+                                viewModel.setPeopleForCurrentSplit(peopleList) // Set people in ViewModel
+                                navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN) // Navigate to Splitter
+                            }
                         )
+                    }
 
-                        // --- MOVE DIALOGS INSIDE HERE ---
-                        if (showOptionsDialog) {
-                            AlertDialog(
-                                onDismissRequest = { showOptionsDialog = false },
-                                title = { Text("Scan a new receipt") },
-                                text = { Text("How do you want to add your receipt?") },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        showOptionsDialog = false; showPermissionDialog = true
-                                    }) { Text("Open Camera") }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = {
-                                        showOptionsDialog = false; galleryLauncher.launch(
-                                        PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                    }) { Text("From Gallery") }
-                                }
-                            )
+                    composable(NavRoutes.BILL_SPLITTER_SCREEN) {
+                        val selectedPersonId by viewModel.selectedPersonId.collectAsState()
+
+                        BillSplitterScreen(
+                            items = currentReceiptItems,
+                            people = currentPeople,
+                            selectedPersonId = selectedPersonId,
+                            onUpdateItem = viewModel::updateReceiptItem,
+                            onDeleteItem = viewModel::deleteReceiptItem,
+                            // --- Update this callback ---
+                            onGoToTip = { totalsBeforeTip ->
+                                viewModel.setTotalsBeforeTip(totalsBeforeTip) // Save pre-tip data
+                                navController.navigate(NavRoutes.TIP_SCREEN) // Navigate to TipScreen
+                            },
+                            // ---
+                            onNavigateBack = { navController.navigateUp() },
+                            onAddPerson = viewModel::addPerson,
+                            onEditPersonName = viewModel::editPersonName,
+                            onDeletePerson = viewModel::deletePerson,
+                            onSelectPerson = viewModel::selectPerson,
+                            onToggleItem = viewModel::toggleItemForSelectedPerson
+                        )
+                    }
+                    composable(NavRoutes.TIP_SCREEN) {
+                        val totalsBeforeTip by viewModel.currentTotalsBeforeTip.collectAsState()
+                        TipScreen(
+                            totalsBeforeTip = totalsBeforeTip,
+                            onNavigateBack = { navController.navigateUp() },
+                            onGoToSummary = { calculatedFinalTotals ->
+                                viewModel.setFinalTotals(calculatedFinalTotals) // Save final data to ViewModel
+                                navController.navigate(NavRoutes.SUMMARY_SCREEN) // Navigate to Summary
+                            }
+                        )
+                    }
+
+                    // --- NEW: Add SummaryScreen composable ---
+                    composable(NavRoutes.SUMMARY_SCREEN) {
+                        SummaryScreen(
+                            finalTotals = finalTotals, // Get totals from ViewModel
+                            allItems = currentReceiptItems, // Get items from ViewModel
+                            onNavigateBack = { navController.navigateUp() },
+                            onSaveAndExit = {
+                                viewModel.saveCurrentReceipt(finalTotals) // Save to DB
+                                navController.popBackStack(NavRoutes.HOME_SCREEN, inclusive = false) // Go Home
+                            }
+                        )
+                    }
+                } // End NavHost
+
+                // --- DIALOGS (Managed Here, Triggered by Callbacks) ---
+                if (showOptionsDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showOptionsDialog = false },
+                        title = { Text("Scan a new receipt") },
+                        text = { Text("How do you want to add your receipt?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showOptionsDialog = false; showPermissionDialog = true // Show permission dialog next
+                            }) { Text("Open Camera") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showOptionsDialog = false
+                                galleryLauncher.launch( // Launch gallery
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }) { Text("From Gallery") }
                         }
+                    )
+                }
 
-                        if (showPermissionDialog) {
-                            AlertDialog(
-                                onDismissRequest = { showPermissionDialog = false },
-                                title = { Text("Camera Permission Needed") },
-                                text = { Text("We need camera access to scan your receipt directly.") },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        showPermissionDialog = false; permissionLauncher.launch(
-                                        Manifest.permission.CAMERA
-                                    )
-                                    }) { Text("Continue") }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = {
-                                        showPermissionDialog = false
-                                    }) { Text("Cancel") }
-                                }
-                            )
-                        }
-                    } // <-- End of Bill Splitter Composable
-                } // <-- End of NavHost
-            } // <-- End of Theme
-        }
-    }
+                if (showPermissionDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showPermissionDialog = false },
+                        title = { Text("Camera Permission Needed") },
+                        text = { Text("We need camera access...") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showPermissionDialog = false
+                                permissionLauncher.launch(Manifest.permission.CAMERA) // Request permission
+                            }) { Text("Continue") }
+                        },
+                        dismissButton = { TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") } }
+                    )
+                }
+            } // End Theme
+        } // End setContent
+    } // End onCreate
 
-    // --- HELPER FUNCTIONS ---
+
+    // --- HELPER FUNCTIONS (INSIDE MainActivity) ---
+
     private fun getTempUri(context: Context): Uri {
         val file = File.createTempFile("temp_image", ".jpg", context.cacheDir)
         return FileProvider.getUriForFile(
             context,
-            "${context.packageName}.provider", // This must match your AndroidManifest
+            "${context.packageName}.provider",
             file
         )
     }
 
     private fun launchCamera() {
-        // 1. Create a new, non-null URI and store it
-        val newImageUri = getTempUri(this)
-
-        // 2. Save this new URI to your class variable
-        tempImageUri = newImageUri
-
-        // 3. Launch the camera with the new, non-null URI
-        cameraLauncher.launch(newImageUri)
+        tempImageUri = getTempUri(this) // Use the stored context
+        tempImageUri?.let { uri -> // Ensure uri is not null
+            cameraLauncher.launch(uri)
+        } ?: run {
+            Toast.makeText(this, "Could not create temporary file for camera", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun processImage(uri: Uri) {
@@ -266,52 +262,168 @@ class MainActivity : ComponentActivity() {
                             for (element in line.elements) {
                                 val elementText = element.text
                                 val elementFrame = element.boundingBox
-
                                 if (elementFrame != null) {
                                     elementsWithBoxes.add(Pair(elementText, elementFrame))
-                                    // Check if this element looks like a price
-                                    if (priceRegex.matches(elementText.replace("$", ""))) { // Check against text without '$'
+                                    if (priceRegex.matches(elementText.replace("$", ""))) {
                                         potentialPrices.add(Pair(elementText, elementFrame))
                                     }
                                 }
-                                // Log.d("ML_KIT_COORDS", ...)
                             }
                         }
                     }
                     // --- End Collection ---
 
-
                     // 2. --- Parse Using Coordinates (AFTER collecting) ---
                     val parsedItems = parseUsingCoordinates(elementsWithBoxes, potentialPrices)
-
 
                     // 3. --- Update ViewModel (Directly, NO viewModelScope.launch) ---
                     viewModel.setCurrentItems(parsedItems) // 'viewModel' is the instance from MainActivity
 
-
                 } // End addOnSuccessListener
                 .addOnFailureListener { e ->
                     Log.e("TEXT_RECOGNITION", "Failed:", e)
-                    // Optionally update ViewModel with error state or empty list
-                    viewModel.setCurrentItems(emptyList())
+                    viewModel.setCurrentItems(emptyList()) // Clear items on failure
                 }
         } catch (e: Exception) {
             Log.e("TEXT_RECOGNITION", "Error processing input image:", e)
-            // Optionally update ViewModel with error state or empty list
-            viewModel.setCurrentItems(emptyList())
+            viewModel.setCurrentItems(emptyList()) // Clear items on error
         }
     }
 
-    // --- THE CALCULATION LOGIC ---
-    fun calculateTotals(
+    // --- Coordinate-Based Parsing Logic (INSIDE MainActivity) ---
+    private fun parseUsingCoordinates(
+        elementsWithBoxes: List<Pair<String, Rect>>,
+        potentialPrices: List<Pair<String, Rect>> // Note: potentialPrices isn't heavily used in *this* version, but keep parameter
+    ): List<ReceiptItem> {
+
+        // --- Helper Function ---
+        fun verticallyOverlaps(rect1: Rect, rect2: Rect): Boolean {
+            // Allow overlap if vertical centers are within half the combined height
+            val overlapThreshold = (rect1.height() + rect2.height()) / 4 // Adjust threshold (e.g., /4, /3)
+            return rect1.top < rect2.bottom - overlapThreshold && rect1.bottom > rect2.top + overlapThreshold
+        }
+
+        // --- Group elements into lines ---
+        val lines = mutableListOf<MutableList<Pair<String, Rect>>>()
+        val processedElements = mutableSetOf<Pair<String, Rect>>()
+        elementsWithBoxes.forEach { element ->
+            if (element !in processedElements) {
+                val currentLine = mutableListOf(element)
+                processedElements.add(element)
+                elementsWithBoxes.forEach { otherElement ->
+                    if (otherElement !in processedElements && verticallyOverlaps(element.second, otherElement.second)) {
+                        currentLine.add(otherElement)
+                        processedElements.add(otherElement)
+                    }
+                }
+                currentLine.sortBy { it.second.left }
+                lines.add(currentLine)
+            }
+        }
+        lines.sortBy { it.firstOrNull()?.second?.top ?: 0 }
+        Log.d("COORD_PARSE", "Found ${lines.size} potential lines.")
+        // --- End Grouping ---
+
+        // --- Process Lines ---
+        val items = mutableListOf<ReceiptItem>()
+        val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex()
+        val ignoreKeywords = listOf(
+            "SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "ORDER",
+            "TABLE", "CLOVER", "TIP", "THANK", "VISITING"
+            // Add more common non-item words if needed
+        )
+        val dateRegex = "\\d{1,2}-\\w{3}-\\d{4}".toRegex() // Or more specific date/time regex
+
+        lines.forEach { lineElements -> // Loop through each identified line
+            val lineText = lineElements.joinToString(" ") { it.first }
+
+            // Ignore line if it contains keywords or matches date pattern
+            if (ignoreKeywords.any { lineText.uppercase().contains(it) } || dateRegex.containsMatchIn(lineText)) {
+                Log.d("COORD_PARSE", "Ignoring line (keyword/date): $lineText")
+                return@forEach // Skip to next line
+            }
+
+            // Separate words and prices found *on this line*
+            val words = mutableListOf<Pair<String, Rect>>()
+            val pricesOnLine = mutableListOf<Pair<Double, Rect>>()
+            lineElements.forEach { (text, rect) ->
+                val priceMatch = priceRegex.matchEntire(text.replace("$", ""))
+                if (priceMatch != null) {
+                    priceMatch.groupValues.getOrNull(1)?.toDoubleOrNull()?.let { priceValue ->
+                        pricesOnLine.add(Pair(priceValue, rect))
+                    }
+                } else {
+                    if (text.length > 1 || text.any { it.isLetter() }) { // Basic filter for potential words
+                        words.add(Pair(text, rect))
+                    }
+                }
+            }
+
+            // --- Association Logic ---
+            if (words.isNotEmpty() && pricesOnLine.isNotEmpty()) {
+                // Calculate vertical center and height of the name words group
+                val nameTop = words.minOfOrNull { it.second.top } ?: 0
+                val nameBottom = words.maxOfOrNull { it.second.bottom } ?: 0
+                val nameCenterY = (nameTop + nameBottom) / 2
+                val nameHeight = nameBottom - nameTop
+
+                // Find the rightmost edge of the name words
+                val nameRightEdge = words.maxOfOrNull { it.second.right } ?: 0
+
+                // Consider only prices starting to the right of the name
+                val candidatePrices = pricesOnLine.filter { it.second.left > nameRightEdge }
+
+                if (candidatePrices.isNotEmpty()) {
+                    // Find the best price based on vertical alignment and horizontal proximity
+                    val bestPricePair = candidatePrices.minByOrNull { (priceValue, priceRect) ->
+                        val priceCenterY = priceRect.centerY()
+                        val verticalDistance = kotlin.math.abs(priceCenterY - nameCenterY)
+                        val verticalPenalty = if (priceRect.bottom < nameTop || priceRect.top > nameBottom) nameHeight * 2 else verticalDistance
+                        val horizontalDistance = priceRect.left - nameRightEdge
+                        (verticalPenalty * 1.5) + horizontalDistance // Score prioritizes vertical alignment
+
+                    }
+
+                    if (bestPricePair != null) {
+                        // Use all words on the line before the best price as the name
+                        val potentialNameWords = words.filter { it.second.right < bestPricePair.second.left }
+                        var potentialName = potentialNameWords.joinToString(" ") { it.first }
+
+                        // Cleaning
+                        potentialName = potentialName.replaceFirst("^\\d+\\s+".toRegex(), "").trim()
+                        potentialName = potentialName.replaceFirst("\\s+[^A-Za-z0-9]+$".toRegex(), "").trim()
+
+                        if (potentialName.isNotEmpty()) {
+                            Log.d("COORD_PARSE", "   -> Associated: '$potentialName' with price ${bestPricePair.first}")
+                            items.add(ReceiptItem(name = potentialName, price = bestPricePair.first))
+                        } else {
+                            Log.d("COORD_PARSE", "   -> Found price ${bestPricePair.first} but name empty after cleaning on line: $lineText")
+                        }
+                    } else {
+                        Log.d("COORD_PARSE", "   -> No suitable aligned/close price found to right on line: $lineText")
+                    }
+                } else {
+                    Log.d("COORD_PARSE", "   -> No prices found to right of words on line: $lineText")
+                }
+            } else {
+                // Log.d("COORD_PARSE", "   -> No clear words/prices combo found on line: $lineText")
+            }
+        } // --- End lines.forEach ---
+
+        Log.d("COORD_PARSE", "Finished parsing. Found ${items.size} items.")
+        return items
+    } // --- End parseUsingCoordinates ---
+
+
+    // --- Calculation Logic (INSIDE MainActivity) ---
+    // (Could be moved to ViewModel or UseCase later)
+    fun calculateTotalsBeforeTip(
         people: List<Person>,
         items: List<ReceiptItem>,
-        taxStr: String,
-        tipStr: String
+        taxStr: String
     ): List<PersonTotal> {
 
         val totalTax = taxStr.toDoubleOrNull() ?: 0.0
-        val totalTip = tipStr.toDoubleOrNull() ?: 0.0
 
         // 1. Calculate each person's subtotal
         val personSubtotals = mutableMapOf<Person, Double>()
@@ -327,33 +439,32 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // --- END OF MISSING LOGIC ---
 
         // 2. Calculate the total subtotal that has been accounted for
-        val accountedForSubtotal = personSubtotals.values.sum()
-        if (accountedForSubtotal == 0.0) {
-            // Avoid division by zero; return empty list
-            return emptyList()
+        val assignedSubtotal = personSubtotals.values.sum()
+        if (assignedSubtotal == 0.0) {
+            return emptyList() // Return empty if no items were assigned
         }
 
-        // 3. Calculate and return the final list
+        // 3. Calculate and return the final list (without tip)
         val finalTotals = mutableListOf<PersonTotal>()
         personSubtotals.forEach { (person, subtotal) ->
             // Find what percentage of the subtotal this person is responsible for
-            val percentageOfBill = subtotal / accountedForSubtotal
+            val percentageOfSubtotal = subtotal / assignedSubtotal
 
-            // Calculate their share of the tax and tip
-            val taxShare = totalTax * percentageOfBill
-            val tipShare = totalTip * percentageOfBill
+            // Calculate their share of the tax
+            val taxShare = totalTax * percentageOfSubtotal
 
-            // Calculate their final total
-            val totalOwed = subtotal + taxShare + tipShare
+            // Calculate their final total (before tip)
+            val totalOwed = subtotal + taxShare
 
             finalTotals.add(
                 PersonTotal(
                     person = person,
                     subtotal = subtotal,
                     taxShare = taxShare,
-                    tipShare = tipShare,
+                    tipShare = 0.0, // Tip is 0 for now
                     totalOwed = totalOwed
                 )
             )
@@ -361,133 +472,4 @@ class MainActivity : ComponentActivity() {
 
         return finalTotals
     }
-
-
-    // --- Coordinate-Based Parsing Logic ---
-    private fun parseUsingCoordinates(
-        elementsWithBoxes: List<Pair<String, Rect>>,
-        potentialPrices: List<Pair<String, Rect>>
-
-
-    ): List<ReceiptItem> {
-        // A helper function to check if two rectangles vertically overlap significantly
-        fun verticallyOverlaps(rect1: Rect, rect2: Rect): Boolean {
-            val overlapThreshold =
-                (rect1.height() + rect2.height()) / 4 // Allow some vertical leeway
-            return rect1.top < rect2.bottom - overlapThreshold && rect1.bottom > rect2.top + overlapThreshold
-        }
-
-        // Group elements roughly by line based on vertical overlap
-        val lines = mutableListOf<MutableList<Pair<String, Rect>>>()
-        val processedElements =
-            mutableSetOf<Pair<String, Rect>>() // Keep track of elements already added
-
-        elementsWithBoxes.forEach { element ->
-            if (element !in processedElements) {
-                val currentLine = mutableListOf(element)
-                processedElements.add(element)
-
-                // Find other elements that overlap vertically with this one
-                elementsWithBoxes.forEach { otherElement ->
-                    if (otherElement !in processedElements && verticallyOverlaps(
-                            element.second,
-                            otherElement.second
-                        )
-                    ) {
-                        currentLine.add(otherElement)
-                        processedElements.add(otherElement)
-                    }
-                }
-                // Sort elements on the line by their horizontal position (left to right)
-                currentLine.sortBy { it.second.left }
-                lines.add(currentLine)
-            }
-        }
-
-        // Sort the lines roughly from top to bottom
-        lines.sortBy { it.firstOrNull()?.second?.top ?: 0 }
-
-        Log.d("COORD_PARSE", "Found ${lines.size} potential lines.")
-
-        val items = mutableListOf<ReceiptItem>()
-        val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex() // Regex to find price shape
-        val ignoreKeywords = listOf(
-            "SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "ORDER",
-            "TABLE", "CLOVER", "TIP", "THANK", "VISITING"
-        ) // More comprehensive ignore list
-        val dateRegex = "\\d{1,2}-\\w{3}-\\d{4}".toRegex() // Simple date pattern
-
-        lines.forEach { lineElements ->
-
-            // Basic check to ignore lines that are mostly numbers or likely headers/footers
-            val lineText = lineElements.joinToString(" ") { it.first }
-
-            // --- THIS is the combined check ---
-            if (ignoreKeywords.any {
-                    lineText.uppercase().contains(it)
-                } || dateRegex.containsMatchIn(lineText)) {
-                // Log.d("COORD_PARSE", "Ignoring line (keyword/date): $lineText")
-                return@forEach // Skip this line
-            }
-
-            val words = mutableListOf<Pair<String, Rect>>()
-            val pricesOnLine = mutableListOf<Pair<Double, Rect>>()
-
-            // Separate words and prices on this line
-            lineElements.forEach { (text, rect) ->
-                // Try to match the price pattern, allowing optional '$'
-                val priceMatch = priceRegex.matchEntire(text.replace("$", ""))
-                if (priceMatch != null) {
-                    // It looks like a price, try converting
-                    priceMatch.groupValues.getOrNull(1)?.toDoubleOrNull()?.let { priceValue ->
-                        pricesOnLine.add(Pair(priceValue, rect))
-                    }
-                } else {
-                    // It's not just a price, consider it a word if it's not tiny/numeric
-                    if (text.length > 1 || text.any { it.isLetter() }) {
-                        words.add(Pair(text, rect))
-                    }
-                }
-            }
-            if (words.isNotEmpty() && pricesOnLine.isNotEmpty()) {
-                // Find the price element furthest to the right
-                val bestPricePair = pricesOnLine.maxByOrNull { it.second.right }
-
-                if (bestPricePair != null) {
-                    // Combine words that appear *before* the chosen price
-                    val potentialNameWords =
-                        words.filter { it.second.right < bestPricePair.second.left }
-                    var potentialName = potentialNameWords.joinToString(" ") { it.first }
-
-                    // Simple cleaning
-                    potentialName = potentialName.replaceFirst("^\\d+\\s+".toRegex(), "")
-                        .trim() // Remove leading qty
-                    potentialName = potentialName.replaceFirst("\\s+[^A-Za-z0-9]+$".toRegex(), "")
-                        .trim() // Remove trailing symbols
-
-                    if (potentialName.isNotEmpty()) {
-                        Log.d(
-                            "COORD_PARSE",
-                            "   -> Associated: '$potentialName' with price ${bestPricePair.first}"
-                        )
-                        items.add(ReceiptItem(name = potentialName, price = bestPricePair.first))
-                    } else {
-                        Log.d(
-                            "COORD_PARSE",
-                            "   -> Found price ${bestPricePair.first} but name was empty after cleaning on line: $lineText"
-                        )
-                    }
-                } else {
-                    Log.d(
-                        "COORD_PARSE",
-                        "   -> Found words but couldn't determine best price on line: $lineText"
-                    )
-                }
-            } else {
-                // Log.d("COORD_PARSE", "   -> No clear words/prices found on line: $lineText")
-            }
-        } // End of loop through lines
-
-        return items
-    }
-}
+} // <-- FINAL closing brace for MainActivity

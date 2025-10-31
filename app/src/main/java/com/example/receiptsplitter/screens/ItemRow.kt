@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -20,8 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.receiptsplitter.data.ReceiptItem
-
-
+import java.util.Locale
+import java.util.UUID
 
 
 // --- UI for a single item row ---
@@ -29,56 +31,54 @@ import com.example.receiptsplitter.data.ReceiptItem
 fun ItemRow(
     item: ReceiptItem,
     onClick: () -> Unit,
-    onDeleteClick: () -> Unit // <-- Renamed from onLongClick
+    onDeleteClick: () -> Unit,
+    selectedPersonId: UUID? // <-- NEW
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+    // Check if the currently selected person is assigned to this item
+    val isAssignedToSelected = item.assignedPeople.any { it.id == selectedPersonId }
+
+    Card( // Use a Card for better click feedback
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selectedPersonId != null && isAssignedToSelected) {
+                MaterialTheme.colorScheme.tertiaryContainer // Highlight if assigned
+            } else if (selectedPersonId != null) {
+                MaterialTheme.colorScheme.surfaceVariant // Dim if not assigned (in selection mode)
+            } else {
+                MaterialTheme.colorScheme.surface // Default
+            }
+        )
     ) {
-
-        // 1. The Delete Button
-        IconButton(onClick = onDeleteClick) {
-            Icon(
-                imageVector = Icons.Default.Clear, // This is the 'X' icon
-                contentDescription = "Delete Item",
-                tint = MaterialTheme.colorScheme.error // Make it red
-            )
-        }
-
-        // 2. The Clickable Item Info (for editing)
-        Column(
-            modifier = Modifier
-                .weight(1f) // This makes the clickable area fill the rest of the space
-                .clickable(onClick = onClick)
-                .padding(vertical = 12.dp), // Padding is now here
+        Row(
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = item.name,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "$${String.format(java.util.Locale.US, "%.2f", item.price)}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            IconButton(onClick = onDeleteClick) {
+                Icon(Icons.Default.Clear, "Delete", tint = MaterialTheme.colorScheme.error)
             }
-            // --- NEW: Show assigned people's initials ---
-            if (item.assignedPeople.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val initials = item.assignedPeople.joinToString(", ") {
-                    it.name.take(2).uppercase() // Get first 2 letters
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.name, style = MaterialTheme.typography.bodyLarge)
+
+                // Show initials of assigned people
+                if (item.assignedPeople.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    val initials = item.assignedPeople.joinToString(", ") { it.name.take(4).uppercase() }
+                    Text(
+                        text = "Split by: $initials",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Text(
-                    text = "Split by: $initials",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
+
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = "$${String.format(Locale.US, "%.2f", item.price)}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
