@@ -1,24 +1,44 @@
 #Setup New Bill Screen
-[] bubble wrap names in setup new bill
-[] add person button automatically prompts for name instead of defaulting to person 1
-[] scan/upload receipt has a preview of the receipt
-[] figure out how to more elegantly deal with more than 12 people lmao.
-[] save people amount between setup screen and assign Items screen
+[x] bubble wrap names in setup new bill
+[x] add person button automatically prompts for name instead of defaulting to person 1
+[x] scan/upload receipt has a preview of the receipt
+[x] figure out how to more elegantly deal with more than 12 people lmao.
+    - Bubbles!
+[x] save people list between setup screen and assign Items screen
+[x] theres an issue where when you enter a name, it carries over to the next + add person
+    - just added default names
+[x] buttons go off screen when too many people are added
+    - added scrollable :)
+[x] fully select default "person #" so user does not have to delete letters one by one when click + button
 
 #Assign Items to People Screen
-[] add item button in the items list (setup screen)
-[] remove person names at the top row
-[] revert back to a checklist when selecting a item
-[] remove totals per person summary in assign items page
+[x] add item button in the items list (setup screen)
+[x] remove person names at the top row
+[x] revert back to a checklist when selecting a item
+[x] remove totals per person summary in assign items page
 
 #Tip Screen
 [] remove 20% from tip options
 
+#Summary Screen
+[] Option to save receipt in homepage
+[] option to finish and not save( create new bill)
+[] allow them to edit the Bill's name when they save
+
 #Home Screen
 [] make it so the saved list show the cards summary screen when opened.
+[] add search button for homepage/filter based on names
+[] filter based on restaurant or name of person
 
 #Strech features
 [] make it pretty
 [] compatible with iphone
 [] security features? (idk how to even do this ask gemini or something)
 [] frequently split with... list
+[] have the camera come with a straight line guide?/ Auto set "gridlines"
+
+
+
+
+
+

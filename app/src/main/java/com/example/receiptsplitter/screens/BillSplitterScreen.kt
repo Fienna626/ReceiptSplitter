@@ -1,55 +1,56 @@
 package com.example.receiptsplitter.screens
 
-// ... (Keep all your existing imports: Column, Row, LazyColumn, Scaffold, TopAppBar, etc.) ...
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.receiptsplitter.MainActivity
+import com.example.receiptsplitter.data.AppDatabase
 import com.example.receiptsplitter.data.Person
-import com.example.receiptsplitter.data.ReceiptItem
 import com.example.receiptsplitter.data.PersonTotal
-import androidx.compose.ui.text.input.KeyboardType
+import com.example.receiptsplitter.data.ReceiptItem
+import com.example.receiptsplitter.viewmodel.ReceiptViewModel
+import com.example.receiptsplitter.viewmodel.ReceiptViewModelFactory
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillSplitterScreen(
+    // Simple parameter list
     items: List<ReceiptItem>,
-    people: List<Person>,
-    selectedPersonId: UUID?,
     onUpdateItem: (ReceiptItem) -> Unit,
     onDeleteItem: (ReceiptItem) -> Unit,
     onGoToTip: (List<PersonTotal>) -> Unit,
-    onNavigateBack: () -> Unit,
-    onAddPerson: () -> Unit,
-    onEditPersonName: (Person, String) -> Unit,
-    onDeletePerson: (Person) -> Unit,
-    onSelectPerson: (Person) -> Unit,
-    onToggleItem: (ReceiptItem) -> Unit
+    onNavigateBack: () -> Unit
 ) {
-    // --- State variables ---
+    // --- Local UI State ---
     val (editingItem, setEditingItem) = remember { mutableStateOf<ReceiptItem?>(null) }
-    var taxInput by remember { mutableStateOf(TextFieldValue("")) } // Tax state
-    val context = LocalContext.current
-    val (viewingPerson, setViewingPerson) = remember { mutableStateOf<PersonTotal?>(null) }
+    var taxInput by remember { mutableStateOf(TextFieldValue("")) }
 
+    // --- Get ViewModel to access people list *only for the dialog* ---
+    val context = LocalContext.current
+    val database = AppDatabase.getDatabase(context.applicationContext)
+    val receiptDao = database.receiptDao()
+    val factory = ReceiptViewModelFactory(receiptDao)
+    val viewModel: ReceiptViewModel = viewModel(factory = factory)
+    // Get the people list from the ViewModel (set by SetupScreen)
+    val people by viewModel.currentPeople.collectAsState()
+    // ---
 
     // --- Calculations ---
-    val calculatedTotals = remember(items, people, taxInput.text) { // Re-calculates when tax changes
+    val calculatedTotals = remember(items, people, taxInput.text) {
         (context as? MainActivity)?.calculateTotalsBeforeTip(
             people,
             items,
@@ -60,7 +61,7 @@ fun BillSplitterScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Assign Items") }, // Updated title
+                title = { Text("Assign Items") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
@@ -76,56 +77,51 @@ fun BillSplitterScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            // --- 1. PEOPLE LIST (Fixed at Top) ---
-            Text(
-                "Assign Items To:",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)
-            )
-            PeopleList( // The horizontal list of people
-                people = people,
-                selectedPersonId = selectedPersonId,
-                onAddPerson = onAddPerson,
-                onEditPersonName = onEditPersonName,
-                onDeletePerson = onDeletePerson,
-                onSelectPerson = onSelectPerson
-            )
+            // --- People list UI is GONE from here ---
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // --- 2. ITEM LIST (Scrollable, takes up all remaining space) ---
+            // --- ITEM LIST (Scrollable) ---
             Text(
-                "Items",
+                "Tap an item to edit/assign, or add a new one",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(16.dp)
             )
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f) // This makes the list fill the available space
+                    .weight(1f) // Fills the space
                     .padding(horizontal = 16.dp)
             ) {
-                items(items, key = { it.id }) { item ->
-                    ItemRow( // Your existing composable for an item row
-                        item = item,
+                // --- Add Item Button ---
+                item {
+                    Button(
                         onClick = {
-                            if (selectedPersonId != null) {
-                                onToggleItem(item) // Assign/unassign
-                            } else {
-                                // setEditingItem(item) // Keep if you still want to edit name/price
-                            }
+                            // Open dialog to add a new, blank item
+                            setEditingItem(ReceiptItem(id = UUID.randomUUID(), name = "", price = 0.0))
                         },
-                        onDeleteClick = { onDeleteItem(item) },
-                        // --- Pass selected ID to highlight ---
-                        selectedPersonId = selectedPersonId
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, "Add", Modifier.size(ButtonDefaults.IconSize))
+                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                        Text("Add New Item Manually")
+                    }
+                }
+
+                // --- Item List ---
+                items(items, key = { it.id }) { item ->
+                    ItemRow( // We need ItemRow.kt
+                        item = item,
+                        onClick = { setEditingItem(item) }, // Open dialog
+                        onDeleteClick = { onDeleteItem(item) }
+                        // No selectedPersonId is passed
                     )
                 }
             } // End LazyColumn
 
-            // --- 3. CHECKOUT SECTION (Fixed at Bottom) ---
+            // --- CHECKOUT SECTION (Fixed at Bottom) ---
             HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
 
-            // --- Tax Field (Moved to Bottom) ---
             OutlinedTextField(
                 value = taxInput,
                 onValueChange = { taxInput = it },
@@ -136,19 +132,11 @@ fun BillSplitterScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
-            // --- Totals Display (Shows Subtotal + Tax) ---
-            if (calculatedTotals.isNotEmpty()) {
-                TotalsDisplay(
-                    totals = calculatedTotals,
-                    onPersonClick = { personTotal -> setViewingPerson(personTotal) }
-                )
-            }
+            // --- Totals Display is GONE from here ---
 
-            // --- Proceed to Tip Button ---
             Button(
                 onClick = { onGoToTip(calculatedTotals) },
-                // Only enable if items exist and have been assigned
-                enabled = calculatedTotals.isNotEmpty(),
+                enabled = true, // User can proceed even with 0 items
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 8.dp)
@@ -157,79 +145,17 @@ fun BillSplitterScreen(
             }
         } // End Main Column
 
-        // --- Dialogs (Overlay) ---
+        // --- Dialogs ---
         editingItem?.let { item ->
-            EditItemDialog(
+            EditItemDialog( // We need EditItemDialog.kt
                 item = item,
-                allPeople = people, // Pass people list to dialog
+                allPeople = people, // Pass the people list here
                 onDismiss = { setEditingItem(null) },
-                onSave = { updatedName: String, updatedPrice: Double, assignedPeople: List<Person> ->
-                    val updatedItem = item.copy(
-                        name = updatedName,
-                        price = updatedPrice,
-                        assignedPeople = assignedPeople.toMutableList()
-                    )
-                    onUpdateItem(updatedItem)
+                onSave = { updatedItem -> // Receives the full item
+                    onUpdateItem(updatedItem) // Pass it up to ViewModel
                     setEditingItem(null)
                 }
             )
         }
-        viewingPerson?.let { personTotal ->
-            BreakdownDialog(
-                personTotal = personTotal,
-                allItems = items,
-                onDismiss = { setViewingPerson(null) }
-            )
-        }
     } // End Scaffold
-}
-
-// Keep your PeopleList composable here or in its own file
-
-@Composable
-
-fun PeopleList(
-
-    people: List<Person>,
-    onAddPerson: () -> Unit,
-    onEditPersonName: (Person, String) -> Unit,
-    onDeletePerson: (Person) -> Unit
-) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-
-    ) { items(people) { person ->
-            var personName by remember(person.id, person.name) { // <-- FIX: Key by person's data
-                mutableStateOf(TextFieldValue(person.name))
-            }
-
-            OutlinedTextField(
-                value = personName,
-                onValueChange = {
-                    personName = it
-                    onEditPersonName(person, it.text)
-                },
-
-                label = { Text("Name") },
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                trailingIcon = {
-
-                    if (people.size > 1) { // <-- FIX: Only show if more than 1 person
-                        IconButton(onClick = { onDeletePerson(person) }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Remove Person")
-                        }
-                    }
-                },
-                modifier = Modifier.width(170.dp)
-            )
-        }
-
-        item {
-            IconButton(onClick = onAddPerson) {
-                Icon(Icons.Default.Add, contentDescription = "Add Person")
-            }
-        }
-    }
 }
