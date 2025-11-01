@@ -1,12 +1,16 @@
 package com.example.receiptsplitter.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,21 +19,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.window.Dialog
 import com.example.receiptsplitter.MainActivity
-import com.example.receiptsplitter.data.AppDatabase
 import com.example.receiptsplitter.data.Person
 import com.example.receiptsplitter.data.PersonTotal
 import com.example.receiptsplitter.data.ReceiptItem
-import com.example.receiptsplitter.viewmodel.ReceiptViewModel
-import com.example.receiptsplitter.viewmodel.ReceiptViewModelFactory
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillSplitterScreen(
-    // Simple parameter list
+    // --- CORRECT, SIMPLE PARAMETER LIST ---
     items: List<ReceiptItem>,
+    people: List<Person>, // <-- IT MUST RECEIVE THE PEOPLE LIST
     onUpdateItem: (ReceiptItem) -> Unit,
     onDeleteItem: (ReceiptItem) -> Unit,
     onGoToTip: (List<PersonTotal>) -> Unit,
@@ -39,20 +41,13 @@ fun BillSplitterScreen(
     val (editingItem, setEditingItem) = remember { mutableStateOf<ReceiptItem?>(null) }
     var taxInput by remember { mutableStateOf(TextFieldValue("")) }
 
-    // --- Get ViewModel to access people list *only for the dialog* ---
-    val context = LocalContext.current
-    val database = AppDatabase.getDatabase(context.applicationContext)
-    val receiptDao = database.receiptDao()
-    val factory = ReceiptViewModelFactory(receiptDao)
-    val viewModel: ReceiptViewModel = viewModel(factory = factory)
-    // Get the people list from the ViewModel (set by SetupScreen)
-    val people by viewModel.currentPeople.collectAsState()
-    // ---
+    // --- NO VIEWMODEL IS CREATED HERE ---
+    val context = LocalContext.current // Only need context for the calculation
 
     // --- Calculations ---
-    val calculatedTotals = remember(items, people, taxInput.text) {
+    val calculatedTotals = remember(items, people, taxInput.text) { // Uses the 'people' parameter
         (context as? MainActivity)?.calculateTotalsBeforeTip(
-            people,
+            people, // Uses the 'people' parameter
             items,
             taxInput.text
         ) ?: emptyList()
@@ -110,11 +105,10 @@ fun BillSplitterScreen(
 
                 // --- Item List ---
                 items(items, key = { it.id }) { item ->
-                    ItemRow( // We need ItemRow.kt
+                    ItemRow(
                         item = item,
                         onClick = { setEditingItem(item) }, // Open dialog
                         onDeleteClick = { onDeleteItem(item) }
-                        // No selectedPersonId is passed
                     )
                 }
             } // End LazyColumn
@@ -132,11 +126,9 @@ fun BillSplitterScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
-            // --- Totals Display is GONE from here ---
-
             Button(
                 onClick = { onGoToTip(calculatedTotals) },
-                enabled = true, // User can proceed even with 0 items
+                enabled = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 8.dp)
@@ -147,12 +139,12 @@ fun BillSplitterScreen(
 
         // --- Dialogs ---
         editingItem?.let { item ->
-            EditItemDialog( // We need EditItemDialog.kt
+            EditItemDialog(
                 item = item,
-                allPeople = people, // Pass the people list here
+                allPeople = people, // <-- PASSES THE 'people' PARAMETER
                 onDismiss = { setEditingItem(null) },
-                onSave = { updatedItem -> // Receives the full item
-                    onUpdateItem(updatedItem) // Pass it up to ViewModel
+                onSave = { updatedItem ->
+                    onUpdateItem(updatedItem)
                     setEditingItem(null)
                 }
             )

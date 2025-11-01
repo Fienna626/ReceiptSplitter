@@ -6,5 +6,6 @@ data class SavedReceiptSummary(
     val description: String,
     val timestamp: Long = System.currentTimeMillis(),
     val grandTotal: Double,
-    val personTotals: List<PersonTotal>
+    val personTotals: List<PersonTotal>,
+    val items: List<ReceiptItem>
 )

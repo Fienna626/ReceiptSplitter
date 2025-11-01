@@ -109,14 +109,15 @@ class ReceiptViewModel(private val receiptDao: ReceiptDao) : ViewModel() {
         _finalTotals.value = emptyList()
     }
 
-    fun saveCurrentReceipt(finalTotals: List<PersonTotal>) {
+    fun saveCurrentReceipt(finalTotals: List<PersonTotal>, description: String) {
         if (finalTotals.isEmpty()) return
         val entityToSave = SavedReceiptEntity(
             id = UUID.randomUUID().toString(),
-            description = "Receipt from ${SimpleDateFormat("MMM dd", Locale.US).format(Date())}",
+            description = description,
             timestamp = System.currentTimeMillis(),
             grandTotal = finalTotals.sumOf { it.totalOwed },
-            personTotals = finalTotals
+            personTotals = finalTotals,
+            items = _receiptItems.value
         )
         viewModelScope.launch {
             receiptDao.insertReceipt(entityToSave)

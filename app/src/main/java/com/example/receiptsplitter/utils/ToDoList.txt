@@ -18,17 +18,18 @@
 [x] remove totals per person summary in assign items page
 
 #Tip Screen
-[] remove 20% from tip options
+[x] remove 20% from tip options
 
 #Summary Screen
-[] Option to save receipt in homepage
-[] option to finish and not save( create new bill)
-[] allow them to edit the Bill's name when they save
+[x] Option to save receipt in homepage
+[x] option to finish and not save( create new bill)
+[x] allow them to edit the Bill's name when they save
 
 #Home Screen
-[] make it so the saved list show the cards summary screen when opened.
-[] add search button for homepage/filter based on names
-[] filter based on restaurant or name of person
+[x] make it so the saved list show the cards summary screen when opened.
+[x] add search button for homepage/filter based on names
+[x] filter based on restaurant or name of person
+[] view only saved bills.
 
 #Strech features
 [] make it pretty

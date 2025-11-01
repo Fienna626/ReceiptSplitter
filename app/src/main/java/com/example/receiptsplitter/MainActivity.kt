@@ -18,9 +18,11 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.receiptsplitter.data.*
 import com.example.receiptsplitter.screens.*
 import com.example.receiptsplitter.ui.theme.ReceiptSplitterTheme
@@ -107,10 +109,12 @@ class MainActivity : ComponentActivity() {
                             },
                             onDeleteReceipt = viewModel::deleteSavedReceipt,
                             onReceiptClick = { receipt ->
-                                // Pass data to ViewModel for detail view
+                                // Load data into ViewModel
                                 viewModel.setFinalTotals(receipt.personTotals)
-                                viewModel.setCurrentItems(emptyList()) // Or load items if saved
-                                navController.navigate(NavRoutes.SUMMARY_SCREEN)
+                                viewModel.setCurrentItems(receipt.items)
+                                viewModel.setPeopleForCurrentSplit(receipt.personTotals.map { it.person })
+                                // --- Navigate with isViewOnly = true ---
+                                navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = true))
                             }
                         )
                     }
@@ -118,23 +122,33 @@ class MainActivity : ComponentActivity() {
                     // --- Setup Screen ---
                     composable(NavRoutes.SETUP_SCREEN) {
                         SetupScreen(
+                            // --- PASS THE STATE ---
                             people = currentPeople,
                             previewImageUri = previewImageUri,
-                            onNavigateBack = { navController.navigateUp() }, // <-- This is here, correctly.
+
+                            // --- PASS THE CALLBACKS ---
+                            onNavigateBack = { navController.navigateUp() },
                             onScanReceiptClick = { showOptionsDialog = true },
-                            onProceedToSplit = { uri ->
-                                if (uri != null) {
-                                    // --- URI IS GOOD, DO THE WORK ---
+                            onProceedToSplit = { uri -> // This is the simple version
+                                if (uri == null) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Please scan a receipt first",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    // ViewModel already has the people list
                                     processImage(uri)
                                     navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN)
-                                } else {
-                                    // --- URI IS NULL, SHOW THE TOAST ---
-                                    Toast.makeText(this@MainActivity, "Please scan a receipt first", Toast.LENGTH_SHORT).show()
-                                    // No return needed
                                 }
                             },
                             onAddPerson = { name -> viewModel.addPerson(name) },
-                            onEditPerson = { person, name -> viewModel.editPersonName(person, name) },
+                            onEditPerson = { person, name ->
+                                viewModel.editPersonName(
+                                    person,
+                                    name
+                                )
+                            },
                             onDeletePerson = { person -> viewModel.deletePerson(person) }
                         )
                     }
@@ -143,6 +157,7 @@ class MainActivity : ComponentActivity() {
                     composable(NavRoutes.BILL_SPLITTER_SCREEN) {
                         BillSplitterScreen(
                             items = currentReceiptItems,
+                            people = currentPeople, // <-- ADD THIS LINE
                             onUpdateItem = viewModel::updateReceiptItem,
                             onDeleteItem = viewModel::deleteReceiptItem,
                             onGoToTip = { totalsBeforeTip ->
@@ -160,25 +175,42 @@ class MainActivity : ComponentActivity() {
                             onNavigateBack = { navController.navigateUp() },
                             onGoToSummary = { calculatedFinalTotals ->
                                 viewModel.setFinalTotals(calculatedFinalTotals)
-                                navController.navigate(NavRoutes.SUMMARY_SCREEN)
+                                // --- Navigate with isViewOnly = false ---
+                                navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = false))
                             }
                         )
                     }
 
                     // --- Summary Screen ---
-                    composable(NavRoutes.SUMMARY_SCREEN) {
+                    composable(
+                        route = NavRoutes.SUMMARY_SCREEN,
+                        arguments = listOf(navArgument(NavRoutes.SUMMARY_ARG_VIEW_ONLY) {
+                            type = NavType.BoolType
+                        })
+                    ) { backStackEntry -> // <-- Get the backStackEntry
+                        // --- Read the argument from the backStackEntry ---
+                        val isViewOnly =
+                            backStackEntry.arguments?.getBoolean(NavRoutes.SUMMARY_ARG_VIEW_ONLY)
+                                ?: false
+
                         SummaryScreen(
                             finalTotals = finalTotals,
-                            allItems = currentReceiptItems, // Show items if needed
+                            allItems = currentReceiptItems,
                             onNavigateBack = { navController.navigateUp() },
-                            onSaveAndExit = {
-                                viewModel.saveCurrentReceipt(finalTotals)
+                            onSaveReceipt = { description ->
+                                viewModel.saveCurrentReceipt(finalTotals, description)
                                 navController.popBackStack(NavRoutes.HOME_SCREEN, inclusive = false)
-                            }
+                            },
+                            onNewBill = {
+                                viewModel.clearCurrentItems()
+                                navController.navigate(NavRoutes.SETUP_SCREEN) {
+                                    popUpTo(NavRoutes.HOME_SCREEN)
+                                }
+                            },
+                            isViewOnly = isViewOnly // <-- Pass the dynamic value here
                         )
-                    }
-                } // End NavHost
-
+                    } // End NavHost
+                }
                 // --- Dialogs (Managed Here) ---
                 if (showOptionsDialog) {
                     AlertDialog(

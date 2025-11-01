@@ -13,7 +13,8 @@ fun SavedReceiptEntity.toSummary(): SavedReceiptSummary {
         description = this.description,
         timestamp = this.timestamp,
         grandTotal = this.grandTotal,
-        personTotals = this.personTotals // Direct mapping works because Room handles the list via Converters
+        personTotals = this.personTotals, // Direct mapping works because Room handles the list via Converters
+        items = this.items
     )
 }
 
@@ -25,6 +26,7 @@ fun SavedReceiptSummary.toEntity(): SavedReceiptEntity {
         description = this.description,
         timestamp = this.timestamp,
         grandTotal = this.grandTotal,
-        personTotals = this.personTotals
+        personTotals = this.personTotals,
+        items = this.items
     )
 }

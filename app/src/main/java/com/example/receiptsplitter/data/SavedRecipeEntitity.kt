@@ -12,5 +12,6 @@ data class SavedReceiptEntity(
     val description: String,
     val timestamp: Long,
     val grandTotal: Double,
-    val personTotals: List<PersonTotal> // Room will use the converter for this
+    val personTotals: List<PersonTotal>, // Room will use the converter for this
+    val items: List<ReceiptItem>
 )

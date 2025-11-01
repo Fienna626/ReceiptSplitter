@@ -87,7 +87,7 @@ fun TipScreen(
             HorizontalDivider()
 
             // --- Preset Tip Buttons ---
-            val presets = listOf(0.0, 10.0, 15.0, 18.0, 20.0)
+            val presets = listOf(0.0, 10.0, 15.0, 18.0)
             val notes = mapOf(
                 0.0 to "*side eyes*",
                 10.0 to "Okkkay",
