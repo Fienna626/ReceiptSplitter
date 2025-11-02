@@ -10,17 +10,28 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = PastelBrown,             // Your main button color
+    onPrimary = Color.Black,           // Text on your buttons
+    background = Cream,      // The main app background
+    surface = OffWhite,         // Color of Cards, Dialogs
+    surfaceVariant = Cream,  // Color for things like BottomAppBar
+    onSurface = Color.Black.copy(alpha = 0.8f) // Main text color
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = PastelBrown,             // Your main button color
+    onPrimary = Color.Black,           // Text on your buttons
+    background = Cream,      // The main app background
+    surface = OffWhite,         // Color of Cards, Dialogs
+    surfaceVariant = Cream,  // Color for things like BottomAppBar
+    onSurface = Color.Black.copy(alpha = 0.8f) // Main text color
 
     /* Other default colors to override
     background = Color(0xFFFFFBFE),
@@ -32,23 +43,17 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Color(0xFF1C1B1F),
     */
 )
+// ? am i stupid why is it purple.
 
 @Composable
 fun ReceiptSplitterTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false, //<---- i found you, you little shit.
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    // --- SideEffect block is GONE ---
 
     MaterialTheme(
         colorScheme = colorScheme,

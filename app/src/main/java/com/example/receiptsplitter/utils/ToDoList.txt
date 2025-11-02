@@ -16,6 +16,7 @@
 [x] remove person names at the top row
 [x] revert back to a checklist when selecting a item
 [x] remove totals per person summary in assign items page
+[] Auto detect tax but also keep it editable in case its wrong
 
 #Tip Screen
 [x] remove 20% from tip options

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,74 +31,99 @@ fun BreakdownDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Card {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // --- Title ---
-                Text(
-                    text = "${personTotal.person.name}'s Bill",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+        Dialog(onDismissRequest = onDismiss) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface // Or surfaceVariant
                 )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // --- Title ---
+                    Text(
+                        text = "${personTotal.person.name}'s Bill",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
 
-                // --- List of their items ---
-                Column(modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 300.dp) // Make it scrollable if too long
-                    .verticalScroll(rememberScrollState())
-                ) {
-                    // Find all items this person is assigned to
-                    allItems.forEach { item ->
-                        if (item.assignedPeople.contains(personTotal.person)) {
-                            // Calculate this person's share of the item
-                            val share = item.price / item.assignedPeople.size
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(item.name)
-                                Text("$${String.format(Locale.US, "%.2f", share)}")
+                    // --- List of their items ---
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp) // Make it scrollable if too long
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // Find all items this person is assigned to
+                        allItems.forEach { item ->
+                            if (item.assignedPeople.contains(personTotal.person)) {
+                                // Calculate this person's share of the item
+                                val share = item.price / item.assignedPeople.size
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(item.name)
+                                    Text("$${String.format(Locale.US, "%.2f", share)}")
+                                }
                             }
                         }
                     }
-                }
 
-                // --- Subtotal ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Subtotal", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.subtotal)}", style = MaterialTheme.typography.bodyMedium)
-                }
+                    // --- Subtotal ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Subtotal", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "$${String.format(Locale.US, "%.2f", personTotal.subtotal)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
 
-                // --- Tax + Tip ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Tax Share", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.taxShare)}", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Tip Share", style = MaterialTheme.typography.bodyMedium)
-                    Text("$${String.format(Locale.US, "%.2f", personTotal.tipShare)}", style = MaterialTheme.typography.bodyMedium)
-                }
+                    // --- Tax + Tip ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Tax Share", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "$${String.format(Locale.US, "%.2f", personTotal.taxShare)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Tip Share", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "$${String.format(Locale.US, "%.2f", personTotal.tipShare)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                // --- Final Total ---
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Owed", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                    // --- Final Total ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Total Owed", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "$${String.format(Locale.US, "%.2f", personTotal.totalOwed)}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
 
-                // --- Dismiss Button ---
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("Close")
+                    // --- Dismiss Button ---
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Close")
+                    }
                 }
             }
         }

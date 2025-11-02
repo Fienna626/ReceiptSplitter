@@ -28,11 +28,12 @@ fun EditItemDialog(
     var selectedPeople by remember { mutableStateOf(item.assignedPeople.toSet()) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Card {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface // Or surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     if (item.name.isBlank()) "Add New Item" else "Edit Item",
                     style = MaterialTheme.typography.titleLarge

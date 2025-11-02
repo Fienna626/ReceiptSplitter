@@ -2,10 +2,13 @@ package com.example.receiptsplitter.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+val PastelBrown = Color(0xFFBFAB98) // A nice primary brown
+val Cream = Color(0xFFF5F5DC)       // A light background
+val DarkBrown = Color(0xFF8D6E63)   // A secondary color
+val OffWhite = Color(0xFFFAF9F6)   // A card/surface color
+val MutedText = Color(0xFF6D6D6D) // A secondary text
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// THIS TOOK SO LONG TO THINK ABOUT LOL.
+// WHY. UI IS SO HARD.
+// BACKEND? 2 DAYS DONE THEMING/LAYOUT? ITS BEEN A WEEK.
+// WHOEVER FINDS THIS YES IM CRASHING OUT LOL.

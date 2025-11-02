@@ -4,49 +4,105 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import java.util.Date // For timestamp
-import java.text.SimpleDateFormat
-import java.util.Locale
 import com.example.receiptsplitter.data.SavedReceiptSummary
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    savedReceipts: List<SavedReceiptSummary>, // List of saved receipts
-    onNavigateToSplitter: () -> Unit, // Action to go to the splitting screen
-    onDeleteReceipt: (SavedReceiptSummary) -> Unit, // Action to delete a saved receipt
-    onReceiptClick: (SavedReceiptSummary) -> Unit // Action when a receipt is clicked (for viewing later)
+    savedReceipts: List<SavedReceiptSummary>,
+    onNavigateToSplitter: () -> Unit,
+    onDeleteReceipt: (SavedReceiptSummary) -> Unit,
+    onReceiptClick: (SavedReceiptSummary) -> Unit
 ) {
+    var showFilterMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Receipt Splitter") })
+            // Use an actual color for the TopAppBar
+            TopAppBar(
+                title = { Text("Your Receipts") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface, // Solid color for the bar
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                // --- Add padding for system status bar ---
+                modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                navigationIcon = {
+                    IconButton(onClick = { /* TODO */ }) {
+                        Icon(Icons.Filled.Spa, "App Icon", tint = MaterialTheme.colorScheme.primary)
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showFilterMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, "Filter Options")
+                        }
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false }
+                        ) {
+                            DropdownMenuItem(text = { Text("Sort by Date") }, onClick = { showFilterMenu = false })
+                            DropdownMenuItem(text = { Text("Sort by Total") }, onClick = { showFilterMenu = false })
+                            DropdownMenuItem(text = { Text("Filter by Person...") }, onClick = { showFilterMenu = false })
+                        }
+                    }
+                }
+            )
         },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onNavigateToSplitter) {
-                Icon(Icons.Filled.Add, contentDescription = "Split New Receipt")
+        bottomBar = {
+            // Use an actual color for the BottomAppBar
+            BottomAppBar(
+                containerColor = MaterialTheme.colorScheme.surface, // Solid color for the bar
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                // --- Add padding for system navigation bar ---
+                modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+            ) {
+                Button(
+                    onClick = onNavigateToSplitter,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Create New Bill")
+                }
             }
-        }
+        },
+        // It should implicitly use the background of the parent Composable (the rounded Surface)
     ) { paddingValues ->
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                // --- IMPORTANT: ONLY apply content padding, NOT windowInsetsPadding here ---
+                // The Scaffold paddingValues already account for Top/Bottom app bars
+                .padding(paddingValues),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (savedReceipts.isEmpty()) {
                 item {
                     Text(
-                        "No saved receipts. Tap '+' to add one!",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "No saved receipts. Tap 'Create New Bill' to start!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
                     )
                 }
@@ -63,41 +119,45 @@ fun HomeScreen(
     }
 }
 
+// Card for displaying a single saved receipt
 @Composable
 fun SavedReceiptCard(
     receipt: SavedReceiptSummary,
     onDelete: () -> Unit,
     onClick: () -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     val dateString = dateFormat.format(Date(receipt.timestamp))
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick), // Make the card clickable
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .clickable(onClick = onClick),
+        // Use the 'surface' color (your OffWhite)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp) // Add a shadow
     ) {
         Row(
-            modifier = Modifier
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(receipt.description.ifEmpty { "Receipt from $dateString" }, style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(4.dp))
+                Text(receipt.description, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Total: $${String.format(Locale.US, "%.2f", receipt.grandTotal)}",
-                    style = MaterialTheme.typography.bodyMedium
+                    dateString,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "People: ${receipt.personTotals.joinToString { it.person.name }}", // Show who split it
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "Total: $${String.format(Locale.US, "%.2f", receipt.grandTotal)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Clear, contentDescription = "Delete Receipt", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Default.Clear, "Delete Receipt", tint = MaterialTheme.colorScheme.error)
             }
         }
     }
