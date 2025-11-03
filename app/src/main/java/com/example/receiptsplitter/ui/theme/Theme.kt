@@ -17,31 +17,41 @@ import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PastelBrown,             // Your main button color
-    onPrimary = Color.Black,           // Text on your buttons
-    background = Cream,      // The main app background
-    surface = OffWhite,         // Color of Cards, Dialogs
-    surfaceVariant = Cream,  // Color for things like BottomAppBar
-    onSurface = Color.Black.copy(alpha = 0.8f) // Main text color
+    primary = PastelBrown,            // Main button color
+    onPrimary = Color.White,          // Text on main buttons
+    primaryContainer = Color(0xFFD7C8BC), // Lighter shade of primary
+    onPrimaryContainer = DarkText,
+
+    secondary = DarkPastelBrown,      // Accent color
+    onSecondary = Color.White,
+
+    background = CreamBackground,     // Main app background
+    onBackground = DarkText,          // Text on the background
+
+    surface = OffWhiteSurface,        // Card/Bar background
+    onSurface = DarkText,             // Text on cards
+
+    surfaceVariant = CreamBackground, // Can be used for Top/Bottom bars if you want them slightly different
+    onSurfaceVariant = MutedText      // Secondary text (like dates)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = PastelBrown,             // Your main button color
-    onPrimary = Color.Black,           // Text on your buttons
-    background = Cream,      // The main app background
-    surface = OffWhite,         // Color of Cards, Dialogs
-    surfaceVariant = Cream,  // Color for things like BottomAppBar
-    onSurface = Color.Black.copy(alpha = 0.8f) // Main text color
+    primary = PastelBrown,            // Main button color
+    onPrimary = Color.White,          // Text on main buttons
+    primaryContainer = Color(0xFFD7C8BC), // Lighter shade of primary
+    onPrimaryContainer = DarkText,
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
+    secondary = DarkPastelBrown,      // Accent color
     onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+
+    background = CreamBackground,     // Main app background
+    onBackground = DarkText,          // Text on the background
+
+    surface = OffWhiteSurface,        // Card/Bar background
+    onSurface = DarkText,             // Text on cards
+
+    surfaceVariant = CreamBackground, // Can be used for Top/Bottom bars if you want them slightly different
+    onSurfaceVariant = MutedText      // Secondary text (like dates)
 )
 // ? am i stupid why is it purple.
 

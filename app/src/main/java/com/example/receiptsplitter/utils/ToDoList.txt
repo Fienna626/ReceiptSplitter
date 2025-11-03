@@ -33,12 +33,13 @@
 [] view only saved bills.
 
 #Strech features
-[] make it pretty
+[x] make it pretty
 [] compatible with iphone
 [] security features? (idk how to even do this ask gemini or something)
-[] frequently split with... list
+[x] frequently split with... list
 [] have the camera come with a straight line guide?/ Auto set "gridlines"
-
+[] have the parser be able to handle more/different types of receipts
+[] be able to parse total/subtotal and taxes
 
 
 

@@ -1,6 +1,5 @@
 package com.example.receiptsplitter.data
 
-// Import the UI model and the Database entity
 import com.example.receiptsplitter.data.SavedReceiptSummary // Or .screens.SavedReceiptSummary if you put it there
 import com.example.receiptsplitter.data.SavedReceiptEntity
 

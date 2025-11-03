@@ -20,4 +20,8 @@ interface ReceiptDao {
     // Deletes an Entity from the database
     @Delete
     suspend fun deleteReceipt(receipt: SavedReceiptEntity) // <-- Use Entity
+
+    // Updates Description based on user input
+    @Query("UPDATE saved_receipts SET description = :newName WHERE id = :receiptId")
+    suspend fun updateDescription(receiptId: String, newName: String)
 }

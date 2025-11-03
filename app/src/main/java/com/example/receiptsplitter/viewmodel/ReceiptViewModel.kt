@@ -133,4 +133,9 @@ class ReceiptViewModel(private val receiptDao: ReceiptDao) : ViewModel() {
             receiptDao.deleteReceipt(receiptSummaryToDelete.toEntity())
         }
     }
+    fun updateReceiptName(receiptId: String, newName: String) {
+        viewModelScope.launch {
+            receiptDao.updateDescription(receiptId, newName)
+        }
+    }
 }

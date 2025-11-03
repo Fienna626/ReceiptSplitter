@@ -12,9 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import com.example.receiptsplitter.data.Person // Import Person data class
+import com.example.receiptsplitter.data.Person
 import java.util.UUID
-// In screens/PeopleList.kt (or wherever it's defined)
 
 @Composable
 fun PeopleList(
@@ -67,7 +66,6 @@ fun PeopleList(
                     },
                     singleLine = true // Keep it on one line
                 )
-                // ---
             }
         }
         item {

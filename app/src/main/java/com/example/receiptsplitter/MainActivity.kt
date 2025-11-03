@@ -11,8 +11,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,10 +20,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
-import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,15 +36,8 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.google.mlkit.vision.text.Text
 import kotlin.math.abs
-import androidx.core.view.WindowCompat
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
-import com.example.receiptsplitter.R
 
 class MainActivity : ComponentActivity() {
 
@@ -89,7 +78,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // WindowCompat.setDecorFitsSystemWindows(window, false) // This is correctly commented out
         tempImageUri = getTempUri(this)
 
         setContent {
@@ -109,124 +97,109 @@ class MainActivity : ComponentActivity() {
                 // 1. The outer Surface provides the pastel brown background
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background // Your 'CreamBackground'
+                    color = MaterialTheme.colorScheme.background
                 ) {
-                    // 2. This Box adds padding for the system bars and screen edges
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .systemBarsPadding() // Adds padding for status bar and nav bar
-                            .padding(horizontal = 16.dp, vertical = 24.dp)
+                    val navController = rememberNavController()
+
+                    // --- NavHost is the DIRECT child of Surface ---
+                    NavHost(
+                        navController = navController,
+                        startDestination = NavRoutes.HOME_SCREEN,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        // 3. This Card is the main rounded (OffWhite) container
-                        Card(
-                            modifier = Modifier.fillMaxSize(),
-                            shape = RoundedCornerShape(28.dp), // Adjust rounding
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface // 'OffWhiteSurface'
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                        ) {
-                            val navController = rememberNavController()
+                        // --- Home Screen ---
+                        composable(NavRoutes.HOME_SCREEN) {
+                            HomeScreen(
+                                savedReceipts = savedReceiptsList,
+                                onNavigateToSplitter = {
+                                    viewModel.clearCurrentItems()
+                                    navController.navigate(NavRoutes.SETUP_SCREEN)
+                                },
+                                onDeleteReceipt = viewModel::deleteSavedReceipt,
+                                onReceiptClick = { receipt ->
+                                    viewModel.setFinalTotals(receipt.personTotals)
+                                    viewModel.setCurrentItems(receipt.items)
+                                    viewModel.setPeopleForCurrentSplit(receipt.personTotals.map { it.person })
+                                    navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = true))
+                                },
+                                onUpdateReceiptName = { receipt, newName ->
+                                    viewModel.updateReceiptName(receipt.id, newName)
+                                }
+                            )
+                        } // <-- End HomeScreen composable
 
-                            // --- NavHost GOES INSIDE THE CARD ---
-                            NavHost(
-                                navController = navController,
-                                startDestination = NavRoutes.HOME_SCREEN,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                // --- Home Screen ---
-                                composable(NavRoutes.HOME_SCREEN) {
-                                    HomeScreen(
-                                        savedReceipts = savedReceiptsList,
-                                        onNavigateToSplitter = {
-                                            viewModel.clearCurrentItems()
-                                            navController.navigate(NavRoutes.SETUP_SCREEN)
-                                        },
-                                        onDeleteReceipt = viewModel::deleteSavedReceipt,
-                                        onReceiptClick = { receipt ->
-                                            viewModel.setFinalTotals(receipt.personTotals)
-                                            viewModel.setCurrentItems(receipt.items)
-                                            viewModel.setPeopleForCurrentSplit(receipt.personTotals.map { it.person })
-                                            navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = true))
-                                        }
-                                    )
-                                } // <-- End HomeScreen composable
+                        // --- Setup Screen ---
+                        composable(NavRoutes.SETUP_SCREEN) {
+                            SetupScreen(
+                                people = currentPeople,
+                                previewImageUri = previewImageUri,
+                                onNavigateBack = { navController.navigateUp() },
+                                onScanReceiptClick = { showOptionsDialog = true },
+                                onProceedToSplit = { uri ->
+                                    if (uri == null) {
+                                        Toast.makeText(this@MainActivity, "Please scan a receipt first", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        processImage(uri)
+                                        navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN)
+                                    }
+                                },
+                                onAddPerson = { name -> viewModel.addPerson(name) },
+                                onEditPerson = { person, name -> viewModel.editPersonName(person, name) },
+                                onDeletePerson = { person -> viewModel.deletePerson(person) }
+                            )
+                        } // <-- End SetupScreen composable
 
-                                // --- Setup Screen ---
-                                composable(NavRoutes.SETUP_SCREEN) {
-                                    SetupScreen(
-                                        people = currentPeople,
-                                        previewImageUri = previewImageUri,
-                                        onNavigateBack = { navController.navigateUp() },
-                                        onScanReceiptClick = { showOptionsDialog = true },
-                                        onProceedToSplit = { uri ->
-                                            if (uri == null) {
-                                                Toast.makeText(this@MainActivity, "Please scan a receipt first", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                processImage(uri)
-                                                navController.navigate(NavRoutes.BILL_SPLITTER_SCREEN)
-                                            }
-                                        },
-                                        onAddPerson = { name -> viewModel.addPerson(name) },
-                                        onEditPerson = { person, name -> viewModel.editPersonName(person, name) },
-                                        onDeletePerson = { person -> viewModel.deletePerson(person) }
-                                    )
-                                } // <-- End SetupScreen composable
+                        // --- Bill Splitter Screen ---
+                        composable(NavRoutes.BILL_SPLITTER_SCREEN) {
+                            BillSplitterScreen(
+                                items = currentReceiptItems,
+                                people = currentPeople,
+                                onUpdateItem = viewModel::updateReceiptItem,
+                                onDeleteItem = viewModel::deleteReceiptItem,
+                                onGoToTip = { totalsBeforeTip ->
+                                    viewModel.setTotalsBeforeTip(totalsBeforeTip)
+                                    navController.navigate(NavRoutes.TIP_SCREEN)
+                                },
+                                onNavigateBack = { navController.navigateUp() }
+                            )
+                        } // <-- End BillSplitterScreen composable
 
-                                // --- Bill Splitter Screen ---
-                                composable(NavRoutes.BILL_SPLITTER_SCREEN) {
-                                    BillSplitterScreen(
-                                        items = currentReceiptItems,
-                                        people = currentPeople,
-                                        onUpdateItem = viewModel::updateReceiptItem,
-                                        onDeleteItem = viewModel::deleteReceiptItem,
-                                        onGoToTip = { totalsBeforeTip ->
-                                            viewModel.setTotalsBeforeTip(totalsBeforeTip)
-                                            navController.navigate(NavRoutes.TIP_SCREEN)
-                                        },
-                                        onNavigateBack = { navController.navigateUp() }
-                                    )
-                                } // <-- End BillSplitterScreen composable
+                        // --- Tip Screen ---
+                        composable(NavRoutes.TIP_SCREEN) {
+                            TipScreen(
+                                totalsBeforeTip = totalsBeforeTip,
+                                onNavigateBack = { navController.navigateUp() },
+                                onGoToSummary = { calculatedFinalTotals ->
+                                    viewModel.setFinalTotals(calculatedFinalTotals)
+                                    navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = false))
+                                }
+                            )
+                        } // <-- End TipScreen composable
 
-                                // --- Tip Screen ---
-                                composable(NavRoutes.TIP_SCREEN) {
-                                    TipScreen(
-                                        totalsBeforeTip = totalsBeforeTip,
-                                        onNavigateBack = { navController.navigateUp() },
-                                        onGoToSummary = { calculatedFinalTotals ->
-                                            viewModel.setFinalTotals(calculatedFinalTotals)
-                                            navController.navigate(NavRoutes.buildSummaryRoute(isViewOnly = false))
-                                        }
-                                    )
-                                } // <-- End TipScreen composable
-
-                                // --- Summary Screen ---
-                                composable(
-                                    route = NavRoutes.SUMMARY_SCREEN,
-                                    arguments = listOf(navArgument(NavRoutes.SUMMARY_ARG_VIEW_ONLY) { type = NavType.BoolType })
-                                ) { backStackEntry ->
-                                    val isViewOnly = backStackEntry.arguments?.getBoolean(NavRoutes.SUMMARY_ARG_VIEW_ONLY) ?: false
-                                    SummaryScreen(
-                                        finalTotals = finalTotals,
-                                        allItems = currentReceiptItems,
-                                        onNavigateBack = { navController.navigateUp() },
-                                        onSaveReceipt = { description ->
-                                            viewModel.saveCurrentReceipt(finalTotals, description)
-                                            navController.popBackStack(NavRoutes.HOME_SCREEN, inclusive = false)
-                                        },
-                                        onNewBill = {
-                                            viewModel.clearCurrentItems()
-                                            navController.navigate(NavRoutes.SETUP_SCREEN) {
-                                                popUpTo(NavRoutes.HOME_SCREEN)
-                                            }
-                                        },
-                                        isViewOnly = isViewOnly
-                                    )
-                                } // <-- End SummaryScreen composable
-                            } // <-- End NavHost
-                        } // <-- End Card
-                    } // <-- End Box
+                        // --- Summary Screen ---
+                        composable(
+                            route = NavRoutes.SUMMARY_SCREEN,
+                            arguments = listOf(navArgument(NavRoutes.SUMMARY_ARG_VIEW_ONLY) { type = NavType.BoolType })
+                        ) { backStackEntry ->
+                            val isViewOnly = backStackEntry.arguments?.getBoolean(NavRoutes.SUMMARY_ARG_VIEW_ONLY) ?: false
+                            SummaryScreen(
+                                finalTotals = finalTotals,
+                                allItems = currentReceiptItems,
+                                onNavigateBack = { navController.navigateUp() },
+                                onSaveReceipt = { description ->
+                                    viewModel.saveCurrentReceipt(finalTotals, description)
+                                    navController.popBackStack(NavRoutes.HOME_SCREEN, inclusive = false)
+                                },
+                                onNewBill = {
+                                    viewModel.clearCurrentItems()
+                                    navController.navigate(NavRoutes.SETUP_SCREEN) {
+                                        popUpTo(NavRoutes.HOME_SCREEN)
+                                    }
+                                },
+                                isViewOnly = isViewOnly
+                            )
+                        } // <-- End SummaryScreen composable
+                    } // <-- End NavHost
 
                     // --- Dialogs (float on top of everything) ---
                     if (showOptionsDialog) {
@@ -235,7 +208,10 @@ class MainActivity : ComponentActivity() {
                             title = { Text("Scan a new receipt") },
                             text = { Text("How do you want to add your receipt?") },
                             confirmButton = { TextButton(onClick = { showOptionsDialog = false; showPermissionDialog = true }) { Text("Open Camera") } },
-                            dismissButton = { TextButton(onClick = { showOptionsDialog = false; galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("From Gallery") } }
+                            dismissButton = { TextButton(onClick = { showOptionsDialog = false; galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("From Gallery") } },
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (showPermissionDialog) {
@@ -243,19 +219,20 @@ class MainActivity : ComponentActivity() {
                             onDismissRequest = { showPermissionDialog = false },
                             title = { Text("Camera Permission Needed") },
                             text = { Text("We need camera access...") },
-                            confirmButton = { TextButton(onClick = { showPermissionDialog = false; permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Continue") } },
-                            dismissButton = { TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") } }
+                            confirmButton = { TextButton(onClick = { showPermissionDialog = false; permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Allow") } },
+                            dismissButton = { TextButton(onClick = { showPermissionDialog = false }) { Text("Cancel") } },
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 } // <-- End Surface
             } // End Theme
         } // End setContent
     } // End onCreate
-
 //Yknow, i setup these "ends" and im still lost editing and adding stuff in this. wtf. i miss my vs plugins.
 
-// --- HELPER FUNCTIONS (INSIDE MainActivity) ---
-
+    // --- HELPER FUNCTIONS (INSIDE MainActivity) ---
     private fun getTempUri(context: Context): Uri {
         val file = File.createTempFile("temp_image", ".jpg", context.cacheDir)
         return FileProvider.getUriForFile(
@@ -264,7 +241,7 @@ class MainActivity : ComponentActivity() {
             file
         )
     }
-
+    // --- c a m e r a ---
     private fun launchCamera() {
         tempImageUri = getTempUri(this) // Create a new temp URI
         tempImageUri?.let { uri -> // Ensure uri is not null
@@ -352,7 +329,7 @@ class MainActivity : ComponentActivity() {
 
         // --- Process Lines ---
         val items = mutableListOf<ReceiptItem>()
-        val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex()
+        val priceRegex = "\\$?(\\d+\\.\\d{2})".toRegex() //Look for dollar signs, no dollar signs were cooked
         val ignoreKeywords = listOf(
             "SUBTOTAL", "TAX", "TOTAL", "CASH", "CHANGE", "ORDER",
             "TABLE", "CLOVER", "TIP", "THANK", "VISITING"

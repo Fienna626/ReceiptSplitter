@@ -1,12 +1,14 @@
-@file:OptIn(ExperimentalLayoutApi::class) // For FlowRow
+@file:OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 
 package com.example.receiptsplitter.screens
 
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,29 +21,35 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.example.receiptsplitter.data.Person
+import com.example.receiptsplitter.ui.theme.DarkPastelBrown
+import com.example.receiptsplitter.ui.theme.OffWhiteSurface
+import com.example.receiptsplitter.ui.theme.PastelBrown
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.shadow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetupScreen(
     // --- State from ViewModel ---
-    people: List<Person>, // <-- Receives the list
+    people: List<Person>,
     previewImageUri: Uri?,
 
     // --- Callbacks to ViewModel ---
     onNavigateBack: () -> Unit,
     onScanReceiptClick: () -> Unit,
-    onProceedToSplit: (Uri?) -> Unit, // <-- Does NOT pass people
+    onProceedToSplit: (Uri?) -> Unit,
     onAddPerson: (String) -> Unit,
     onEditPerson: (Person, String) -> Unit,
     onDeletePerson: (Person) -> Unit
 ) {
 
-    // --- Local UI State for Dialogs ONLY ---
+    // --- Local UI State for Dialogs ONLY (No Changes) ---
     var showAddPersonDialog by remember { mutableStateOf(false) }
     var newPersonName by remember { mutableStateOf(TextFieldValue("")) }
     var personToEdit by remember { mutableStateOf<Person?>(null) }
@@ -49,12 +57,13 @@ fun SetupScreen(
     val addFocusRequester = remember { FocusRequester() }
     val editFocusRequester = remember { FocusRequester() }
 
-    // --- NO 'peopleState' variable here ---
-
-    // --- "Add Person" Dialog ---
+    // --- "Add Person" Dialog  ---
     if (showAddPersonDialog) {
         AlertDialog(
             onDismissRequest = { showAddPersonDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             title = { Text("Add New Person") },
             text = {
                 OutlinedTextField(
@@ -70,7 +79,7 @@ fun SetupScreen(
                 Button(
                     onClick = {
                         if (newPersonName.text.isNotBlank()) {
-                            onAddPerson(newPersonName.text) // Call ViewModel
+                            onAddPerson(newPersonName.text)
                             showAddPersonDialog = false
                             newPersonName = TextFieldValue("")
                         }
@@ -90,6 +99,9 @@ fun SetupScreen(
     personToEdit?.let { person ->
         AlertDialog(
             onDismissRequest = { personToEdit = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             title = { Text("Edit Name") },
             text = {
                 OutlinedTextField(
@@ -105,7 +117,7 @@ fun SetupScreen(
                 Button(
                     onClick = {
                         if (editPersonName.text.isNotBlank()) {
-                            onEditPerson(person, editPersonName.text) // Call ViewModel
+                            onEditPerson(person, editPersonName.text)
                             personToEdit = null
                         }
                     },
@@ -123,46 +135,95 @@ fun SetupScreen(
     // --- Main Screen UI ---
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Setup New Bill") },
-                navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "New Bill",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Filled.ArrowBack, "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    )
                 )
-            )
-        }
+            }
+        },
+        containerColor = Color.Transparent
     ) { paddingValues ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp)
+                .padding(top = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Who is splitting this bill?", style = MaterialTheme.typography.titleLarge)
+            // --- Replaced header with a hint text ---
+            Text(
+                "Add people to split. Tap a name to edit.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.height(16.dp))
 
             // --- Scrollable Middle Section ---
             Column(
-                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // --- People "Bubbles" ---
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                FlowRow( modifier = Modifier .fillMaxWidth()
+                    .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // --- Use the 'people' parameter from ViewModel ---
                     people.forEach { person ->
                         FilterChip(
+
                             selected = false,
                             onClick = {
                                 val text = person.name
                                 editPersonName = TextFieldValue(text = text, selection = TextRange(0, text.length))
                                 personToEdit = person
                             },
-                            label = { Text(person.name) },
-                            leadingIcon = { Icon(Icons.Filled.Person, "Person") },
+                            label = {
+                                Text(
+                                    person.name,
+                                    color = OffWhiteSurface
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = PastelBrown, // WHY MaterialTheme.colorScheme.surface NO WORK HERE????
+                            ),
+                            border = BorderStroke(0.dp, Color.Transparent),
+
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Person, "Person",
+                                    tint = OffWhiteSurface
+                                )
+                            },
                             trailingIcon = {
-                                if (people.size > 1) { // Use 'people' parameter
+                                if (people.size > 1) {
                                     IconButton(onClick = { onDeletePerson(person) }, modifier = Modifier.size(20.dp)) {
                                         Icon(Icons.Default.Clear, "Remove", modifier = Modifier.size(16.dp))
                                     }
@@ -170,20 +231,21 @@ fun SetupScreen(
                             }
                         )
                     }
-                    // "Add Person" Button
                     IconButton(onClick = {
-                        val defaultName = "Person ${people.size + 1}" // Use 'people' parameter
+                        val defaultName = "Person ${people.size + 1}"
                         newPersonName = TextFieldValue(text = defaultName, selection = TextRange(0, defaultName.length))
                         showAddPersonDialog = true
-                    }) {
+                    }, ) {
                         Icon(Icons.Default.AddCircle, "Add Person")
                     }
                 }
 
                 HorizontalDivider()
 
-                // --- Scan Section (This is the button for the camera) ---
-                Button(onClick = onScanReceiptClick) {
+                // --- Scan Section ---
+                Button(onClick = onScanReceiptClick,
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp))
+                {
                     Icon(Icons.Default.PhotoCamera, null, Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text("Scan/Upload Receipt")
@@ -192,7 +254,15 @@ fun SetupScreen(
 
                 // --- Image Preview ---
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(300.dp).border(1.dp, MaterialTheme.colorScheme.outline).padding(4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.secondary,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (previewImageUri != null) {
@@ -203,18 +273,35 @@ fun SetupScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        Text("Scan a receipt to see a preview here", style = MaterialTheme.typography.bodySmall)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(4.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Scan a receipt to see a preview here",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             } // --- End Scrollable Column ---
 
             Spacer(Modifier.height(16.dp))
 
-            // --- Proceed Button ---
+            // --- Proceed Button (No Changes) ---
             Button(
-                onClick = { onProceedToSplit(previewImageUri) }, // <-- CORRECT: Only passes URI
+                onClick = { onProceedToSplit(previewImageUri) },
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                 enabled = previewImageUri != null,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
             ) {
                 Text("Continue to Items")
             }
