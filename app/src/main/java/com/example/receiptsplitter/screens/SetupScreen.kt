@@ -225,7 +225,12 @@ fun SetupScreen(
                             trailingIcon = {
                                 if (people.size > 1) {
                                     IconButton(onClick = { onDeletePerson(person) }, modifier = Modifier.size(20.dp)) {
-                                        Icon(Icons.Default.Clear, "Remove", modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            Icons.Default.Clear,
+                                            contentDescription = "Remove",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = OffWhiteSurface // <-- ADDED THIS LINE
+                                        )
                                     }
                                 }
                             }

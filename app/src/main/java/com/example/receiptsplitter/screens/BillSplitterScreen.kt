@@ -24,11 +24,13 @@ import com.example.receiptsplitter.data.PersonTotal
 import com.example.receiptsplitter.data.ReceiptItem
 import java.util.UUID
 import androidx.compose.material3.TextFieldDefaults
+import com.example.receiptsplitter.viewmodel.ReceiptViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillSplitterScreen(
     // --- State ---
+    viewModel: ReceiptViewModel,
     items: List<ReceiptItem>,
     people: List<Person>,
     // --- Callbacks ---
@@ -43,6 +45,17 @@ fun BillSplitterScreen(
 
     val context = LocalContext.current
 
+    val totalTaxFromVM by viewModel.totalTax.collectAsState()
+
+    LaunchedEffect(totalTaxFromVM) {
+        val localTax = totalTaxFromVM // <-- THIS IS THE FIX (Part 1)
+        if (localTax != null && localTax != taxInput.text) {
+            taxInput = TextFieldValue(localTax) // <-- THIS IS THE FIX (Part 2)
+        } else if (localTax == null && taxInput.text.isNotEmpty()) {
+            taxInput = TextFieldValue("") // Clear it if VM is cleared
+        }
+    }
+
     // --- Calculations ---
     val calculatedTotals = remember(items, people, taxInput.text) {
         (context as? MainActivity)?.calculateTotalsBeforeTip(
@@ -51,6 +64,7 @@ fun BillSplitterScreen(
             taxInput.text
         ) ?: emptyList()
     }
+
 
     Scaffold(
         topBar = {

@@ -38,6 +38,14 @@ class ReceiptViewModel(private val receiptDao: ReceiptDao) : ViewModel() {
             initialValue = emptyList()
         )
 
+    private val _totalTax = MutableStateFlow<String?>(null)
+    val totalTax: StateFlow<String?> = _totalTax.asStateFlow()
+
+    fun setTotalTax(tax: String) {
+        _totalTax.value = tax
+    }
+
+
     // --- LOGIC ---
 
     fun setPreviewImageUri(uri: Uri?) {
@@ -107,6 +115,7 @@ class ReceiptViewModel(private val receiptDao: ReceiptDao) : ViewModel() {
         _previewImageUri.value = null
         _currentTotalsBeforeTip.value = emptyList()
         _finalTotals.value = emptyList()
+        _totalTax.value = null
     }
 
     fun saveCurrentReceipt(finalTotals: List<PersonTotal>, description: String) {
